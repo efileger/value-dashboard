@@ -150,6 +150,123 @@ def partial_ticker_cls():
 
 
 @pytest.fixture
+def price_cap_ticker_cls():
+    """Ticker class fixture with market cap only in the price section."""
+
+    class PriceCapTicker:
+        def __init__(self, ticker):
+            self.summary_detail = pd.DataFrame(
+                {
+                    "trailingPE": [22.5],
+                    "priceToBook": [3.0],
+                    "dividendYield": [0.015],
+                    "pegRatio": [1.2],
+                    "priceToSalesTrailing12Months": [2.5],
+                },
+                index=[ticker],
+            )
+            self.financial_data = pd.DataFrame(
+                {
+                    "profitMargins": [0.21],
+                    "returnOnEquity": [0.16],
+                    "currentRatio": [1.7],
+                    "quickRatio": [1.4],
+                    "operatingCashflow": [2_500_000_000],
+                    "revenueGrowth": [0.08],
+                    "earningsGrowth": [0.09],
+                    "operatingMargins": [0.13],
+                    "debtToEquity": [60],
+                    "freeCashflow": [750_000_000],
+                    "ebitdaMargins": [0.17],
+                    "returnOnAssets": [0.11],
+                    "totalRevenue": [6_000_000_000],
+                    "totalCash": [1_200_000_000],
+                    "totalDebt": [900_000_000],
+                },
+                index=[ticker],
+            )
+            self.asset_profile = {ticker: {"industry": "Finance", "sector": "Banking"}}
+            self.key_stats = pd.DataFrame(
+                {
+                    "marketCap": [None],
+                    "sharesOutstanding": [[1_000_000_000, 900_000_000]],
+                    "revenuePerShare": [6.0],
+                    "enterpriseToEbitda": [11],
+                    "heldPercentInsiders": [0.06],
+                    "pegRatio": [1.2],
+                },
+                index=[ticker],
+            )
+            self.quote_type = {ticker: {"longName": "Price Cap Corp"}}
+            self.price = {ticker: {"shortName": "PriceCap", "marketCap": 3_500_000_000}}
+            self._history = pd.DataFrame({"close": [1, 2]})
+
+        def history(self, period):
+            return self._history
+
+    return PriceCapTicker
+
+
+@pytest.fixture
+def summary_detail_cap_ticker_cls():
+    """Ticker class fixture with market cap only in summary detail."""
+
+    class SummaryDetailCapTicker:
+        def __init__(self, ticker):
+            self.summary_detail = pd.DataFrame(
+                {
+                    "trailingPE": [18.0],
+                    "priceToBook": [2.2],
+                    "dividendYield": [0.01],
+                    "pegRatio": [1.1],
+                    "priceToSalesTrailing12Months": [2.1],
+                    "marketCap": [4_200_000_000],
+                },
+                index=[ticker],
+            )
+            self.financial_data = pd.DataFrame(
+                {
+                    "profitMargins": [0.2],
+                    "returnOnEquity": [0.14],
+                    "currentRatio": [1.9],
+                    "quickRatio": [1.5],
+                    "operatingCashflow": [3_000_000_000],
+                    "revenueGrowth": [0.06],
+                    "earningsGrowth": [0.05],
+                    "operatingMargins": [0.12],
+                    "debtToEquity": [55],
+                    "freeCashflow": [800_000_000],
+                    "ebitdaMargins": [0.16],
+                    "returnOnAssets": [0.1],
+                    "totalRevenue": [7_500_000_000],
+                    "totalCash": [1_500_000_000],
+                    "totalDebt": [850_000_000],
+                },
+                index=[ticker],
+            )
+            self.asset_profile = {ticker: {"industry": "Energy", "sector": "Utilities"}}
+            self.key_stats = pd.DataFrame(
+                {
+                    "marketCap": [None],
+                    "sharesOutstanding": [[1_200_000_000, 1_000_000_000]],
+                    "revenuePerShare": [6.25],
+                    "enterpriseToEbitda": [9],
+                    "heldPercentInsiders": [0.04],
+                    "pegRatio": [1.1],
+                },
+                index=[ticker],
+            )
+            self.quote_type = {ticker: {"longName": "Summary Cap Corp"}}
+            self.price = {ticker: {"shortName": "SummaryCap"}}
+            self._history = pd.DataFrame({"close": [1, 2]})
+
+        def history(self, period):
+            return self._history
+
+    return SummaryDetailCapTicker
+
+
+@pytest.fixture
 def empty_ticker_cls():
     """Ticker class fixture that returns empty sections for failure testing."""
 
