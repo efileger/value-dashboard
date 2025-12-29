@@ -135,6 +135,30 @@ def format_billions(val):
         return f"{val / 1e9:.2f}B"
     return val
 
+
+def ensure_data_available(ticker, sections, metrics):
+    """Validate that required sections and metrics are populated for the ticker."""
+
+    missing_sections = [name for name, data in sections.items() if not data]
+    if missing_sections:
+        joined = ", ".join(missing_sections)
+        raise ValueError(f"No data found for {ticker}: missing sections {joined}.")
+
+    has_metric_value = any(value is not None for value in metrics.values())
+    if not has_metric_value:
+        raise ValueError(f"No metrics available for {ticker} from Yahoo Finance.")
+
+    critical_fields = {
+        "market cap": sections.get("key_stats", {}).get("marketCap"),
+        "total revenue": sections.get("financial_data", {}).get("totalRevenue"),
+        "total debt": sections.get("financial_data", {}).get("totalDebt"),
+    }
+    missing_fields = [name for name, value in critical_fields.items() if value is None]
+    if missing_fields:
+        joined = ", ".join(missing_fields)
+        raise ValueError(f"Missing required fields for {ticker}: {joined}.")
+
+
 def display_stock(ticker):
     t = Ticker(ticker)
     summary = _safe_section(t.summary_detail, ticker)
@@ -150,23 +174,16 @@ def display_stock(ticker):
     industry = profile.get("industry", "—")
     sector = profile.get("sector", "—")
     market_cap = format_billions(key_stats.get("marketCap", "—"))
+    sections = {
+        "summary_detail": summary,
+        "financial_data": financial,
+        "asset_profile": profile,
+        "key_stats": key_stats,
+        "price": price,
+    }
+
     total_revenue_val = financial.get("totalRevenue", None)
-    total_revenue = format_billions(total_revenue_val)
-    total_cash = format_billions(financial.get("totalCash", "—"))
-    total_debt = format_billions(financial.get("totalDebt", "—"))
     shares_outstanding_val = key_stats.get("sharesOutstanding", None)
-    shares_outstanding = format_billions(shares_outstanding_val)
-
-    company_name = resolve_company_name(ticker, quote_type, price, profile)
-
-    st.subheader(f"{ticker} - {company_name}")
-    st.markdown(f"**Industry**: {industry}")
-    st.markdown(f"**Sector**: {sector}")
-    st.markdown(f"**Market Cap**: {market_cap}")
-    st.markdown(f"**Total Revenue**: {total_revenue}")
-    st.markdown(f"**Total Cash**: {total_cash}")
-    st.markdown(f"**Total Debt**: {total_debt}")
-    st.markdown(f"**Shares Outstanding**: {shares_outstanding}")
 
     buybacks = None
     try:
@@ -219,6 +236,27 @@ def display_stock(ticker):
     },
         ticker,
     )
+
+    ensure_data_available(ticker, sections, metrics)
+
+    industry = profile.get("industry", "—")
+    sector = profile.get("sector", "—")
+    market_cap = format_billions(key_stats.get("marketCap", "—"))
+    total_revenue = format_billions(total_revenue_val)
+    total_cash = format_billions(financial.get("totalCash", "—"))
+    total_debt = format_billions(financial.get("totalDebt", "—"))
+    shares_outstanding = format_billions(shares_outstanding_val)
+
+    company_name = resolve_company_name(ticker, quote_type, price, profile)
+
+    st.subheader(f"{ticker} - {company_name}")
+    st.markdown(f"**Industry**: {industry}")
+    st.markdown(f"**Sector**: {sector}")
+    st.markdown(f"**Market Cap**: {market_cap}")
+    st.markdown(f"**Total Revenue**: {total_revenue}")
+    st.markdown(f"**Total Cash**: {total_cash}")
+    st.markdown(f"**Total Debt**: {total_debt}")
+    st.markdown(f"**Shares Outstanding**: {shares_outstanding}")
 
     rows = []
     pass_count = 0
