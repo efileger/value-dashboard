@@ -64,16 +64,19 @@ def test_watchlist_entries_fail_fast(stubbed_streamlit, empty_ticker_cls):
 
 
 def test_display_stock_surfaces_error_reason(streamlit_spy, erroring_ticker_cls):
-    with pytest.raises(ValueError) as excinfo:
-        ui.display_stock("ERR", ticker_cls=erroring_ticker_cls)
+    data_access.RATE_LIMIT_COOLDOWNS.clear()
+    captured = streamlit_spy
 
-    message = str(excinfo.value)
-    assert "reason" in message
-    assert "429" in message or "Rate limit exceeded" in message
-    assert not streamlit_spy["warnings"]
+    ui.display_stock("ERR", ticker_cls=erroring_ticker_cls)
+
+    assert any("Rate limit" in message for message in captured["info"])
+    assert not captured["warnings"]
+    data_access.RATE_LIMIT_COOLDOWNS.clear()
 
 
 def test_display_stock_warns_when_no_error_details(streamlit_spy, empty_ticker_cls):
+    data_access.RATE_LIMIT_COOLDOWNS.clear()
+
     with pytest.raises(ValueError) as excinfo:
         ui.display_stock("AAPL", ticker_cls=empty_ticker_cls)
 

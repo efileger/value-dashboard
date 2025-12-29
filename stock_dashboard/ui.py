@@ -58,6 +58,21 @@ def display_stock(ticker: str, ticker_cls=None):
     sections = data_access.fetch_ticker_sections(ticker, ticker_cls=ticker_cls)
 
     error_info = sections.get("error") or {}
+    rate_limit = error_info.get("rate_limit")
+    if isinstance(rate_limit, data_access.RateLimitError):
+        remaining_seconds = rate_limit.remaining or rate_limit.retry_after or 0
+        host = rate_limit.host or "Yahoo Finance"
+        message = (
+            f"Rate limit detected from {host}. Please wait {remaining_seconds} seconds before retrying."
+        )
+        st.info(message)
+        try:
+            st.toast(message)
+        except Exception:
+            # Toast not available in some Streamlit versions; banner is sufficient.
+            pass
+        return
+
     core_sections = {
         k: v for k, v in sections.items() if k not in {"buybacks", "error"}
     }

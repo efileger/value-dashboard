@@ -10,6 +10,7 @@ from .data_access import (
     fetch_ticker_sections,
     get_default_watchlist_string,
     load_watchlist,
+    RateLimitError,
     resolve_company_name,
 )
 from .metrics import (
@@ -38,6 +39,7 @@ __all__ = [
     "main",
     "metrics",
     "pd",
+    "RateLimitError",
     "resolve_company_name",
     "st",
     "thresholds",

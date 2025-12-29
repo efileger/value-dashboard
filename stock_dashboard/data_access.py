@@ -1,12 +1,37 @@
+import logging
 import os
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+from urllib.parse import urlparse
 
 import pandas as pd
 from yahooquery import Ticker
 
 DEFAULT_WATCHLIST_PATH = Path(__file__).resolve().parent.parent / "watchlist.txt"
 DEFAULT_TICKERS_FALLBACK = "AAPL,MSFT,META"
+_DEFAULT_RATE_LIMIT_SECONDS = 60
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class RateLimitError:
+    status_code: int | None
+    message: str
+    retry_after: int | None
+    headers: Mapping[str, Any]
+    host: str | None = None
+    payload: Any | None = None
+    remaining: int | None = None
+
+
+RATE_LIMIT_COOLDOWNS: dict[str, datetime] = {}
+
+
+def _utcnow() -> datetime:
+    return datetime.now(tz=timezone.utc)
 
 
 def is_smoke_mode() -> bool:
@@ -138,6 +163,93 @@ def _safe_section(section: Any, ticker: str) -> Mapping[str, Any]:
     return {}
 
 
+def _extract_host(response: Any) -> str | None:
+    url = getattr(response, "url", None) or getattr(getattr(response, "request", None), "url", None)
+    if not url:
+        return None
+
+    parsed = urlparse(url)
+    return parsed.hostname
+
+
+def _normalize_headers(headers: Any) -> Mapping[str, Any]:
+    if isinstance(headers, Mapping):
+        return dict(headers)
+
+    return {}
+
+
+def _parse_retry_after(headers: Mapping[str, Any], payload: Any = None) -> int | None:
+    header_value = None
+    for key, value in headers.items():
+        if str(key).lower() == "retry-after":
+            header_value = value
+            break
+
+    if header_value is not None:
+        try:
+            return int(str(header_value))
+        except (TypeError, ValueError):
+            try:
+                parsed_date = datetime.fromisoformat(str(header_value))
+                return max(0, int((parsed_date - _utcnow()).total_seconds()))
+            except Exception:
+                return None
+
+    if isinstance(payload, Mapping):
+        retry_after = payload.get("retry_after") or payload.get("retryAfter")
+        if retry_after:
+            try:
+                return int(retry_after)
+            except (TypeError, ValueError):
+                return None
+
+    return None
+
+
+def _record_rate_limit(rate_limit_error: RateLimitError) -> None:
+    retry_after = rate_limit_error.retry_after or _DEFAULT_RATE_LIMIT_SECONDS
+    host = rate_limit_error.host or "yahoo_finance"
+    resume_at = _utcnow() + timedelta(seconds=retry_after)
+    RATE_LIMIT_COOLDOWNS[host] = resume_at
+    rate_limit_error.remaining = retry_after
+    logger.info(
+        "Rate limit detected for host %s; retry after %ss", host, retry_after
+    )
+
+
+def _active_rate_limit() -> RateLimitError | None:
+    if not RATE_LIMIT_COOLDOWNS:
+        return None
+
+    now = _utcnow()
+    active_host = None
+    active_resume_at: datetime | None = None
+
+    for host, resume_at in RATE_LIMIT_COOLDOWNS.items():
+        if resume_at > now and (active_resume_at is None or resume_at < active_resume_at):
+            active_host = host
+            active_resume_at = resume_at
+
+    if active_host is None or active_resume_at is None:
+        return None
+
+    remaining_seconds = max(0, int((active_resume_at - now).total_seconds()))
+    logger.info(
+        "Skipping fetch due to active rate limit for %s; %ss remaining",
+        active_host,
+        remaining_seconds,
+    )
+    return RateLimitError(
+        status_code=None,
+        message="Rate limit active",
+        retry_after=remaining_seconds,
+        headers={},
+        host=active_host,
+        remaining=remaining_seconds,
+    )
+
+
 def resolve_company_name(ticker: str, quote_type=None, price=None, profile=None) -> str:
     """Return the most descriptive company name available for the ticker.
 
@@ -215,29 +327,8 @@ def fetch_ticker_sections(ticker: str, ticker_cls: type[Ticker] = Ticker) -> dic
             "buybacks": True,
         }
 
-    def _capture_error_details(exc: Exception) -> dict[str, Any]:
-        details: dict[str, Any] = {"message": str(exc)}
-
-        response = getattr(exc, "response", None)
-        status_code = getattr(exc, "status_code", None)
-        if response and not status_code:
-            status_code = getattr(response, "status_code", None)
-
-        if status_code is not None:
-            details["status_code"] = status_code
-
-        return details
-
-    def _fetch_section(client: Any, attr_name: str) -> tuple[Mapping[str, Any], dict[str, Any]]:
-        try:
-            section = getattr(client, attr_name)
-            return _safe_section(section, ticker), {}
-        except Exception as exc:  # noqa: BLE001
-            return {}, _capture_error_details(exc)
-
-    try:
-        ticker_client = ticker_cls(ticker)
-    except Exception as exc:  # noqa: BLE001
+    active_limit = _active_rate_limit()
+    if active_limit:
         return {
             "summary_detail": {},
             "financial_data": {},
@@ -246,7 +337,72 @@ def fetch_ticker_sections(ticker: str, ticker_cls: type[Ticker] = Ticker) -> dic
             "quote_type": {},
             "price": {},
             "buybacks": None,
-            "error": _capture_error_details(exc),
+            "error": {"message": active_limit.message, "rate_limit": active_limit},
+        }
+
+    def _capture_error_details(exc: Exception) -> dict[str, Any]:
+        details: dict[str, Any] = {"message": str(exc)}
+
+        response = getattr(exc, "response", None)
+        status_code = getattr(exc, "status_code", None)
+        if response and not status_code:
+            status_code = getattr(response, "status_code", None)
+
+        headers = _normalize_headers(getattr(response, "headers", {}))
+        payload = None
+        if response is not None:
+            try:
+                payload = response.json()
+            except Exception:
+                payload = getattr(response, "text", None)
+
+        if status_code is not None:
+            details["status_code"] = status_code
+
+        if headers:
+            details["headers"] = headers
+
+        host = _extract_host(response)
+        retry_after = _parse_retry_after(headers, payload)
+        if status_code in {429, 503} or retry_after:
+            rate_limit_error = RateLimitError(
+                status_code=status_code,
+                message=str(exc),
+                retry_after=retry_after,
+                headers=headers,
+                host=host,
+                payload=payload,
+                remaining=retry_after,
+            )
+            details["rate_limit"] = rate_limit_error
+
+        return details
+
+    def _fetch_section(client: Any, attr_name: str) -> tuple[Mapping[str, Any], dict[str, Any]]:
+        try:
+            section = getattr(client, attr_name)
+            return _safe_section(section, ticker), {}
+        except Exception as exc:  # noqa: BLE001
+            details = _capture_error_details(exc)
+            if rate_limit := details.get("rate_limit"):
+                _record_rate_limit(rate_limit)
+            return {}, details
+
+    try:
+        ticker_client = ticker_cls(ticker)
+    except Exception as exc:  # noqa: BLE001
+        error_details = _capture_error_details(exc)
+        if rate_limit := error_details.get("rate_limit"):
+            _record_rate_limit(rate_limit)
+        return {
+            "summary_detail": {},
+            "financial_data": {},
+            "asset_profile": {},
+            "key_stats": {},
+            "quote_type": {},
+            "price": {},
+            "buybacks": None,
+            "error": error_details,
         }
 
     sections: dict[str, Mapping[str, Any]] = {}
@@ -264,6 +420,9 @@ def fetch_ticker_sections(ticker: str, ticker_cls: type[Ticker] = Ticker) -> dic
         sections[key] = section
         if section_error and not error_info:
             error_info = section_error
+
+    if rate_limit := error_info.get("rate_limit"):
+        _record_rate_limit(rate_limit)
 
     buybacks = _detect_buybacks(ticker_client, sections.get("key_stats", {}))
 

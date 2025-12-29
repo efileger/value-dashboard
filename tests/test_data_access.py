@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import pandas as pd
 
 from stock_dashboard import data_access
@@ -148,3 +150,92 @@ def test_fetch_ticker_sections_records_error_details():
     assert sections["summary_detail"] == {}
     assert sections["error"]["status_code"] == 503
     assert "API unavailable" in sections["error"]["message"]
+
+
+def test_fetch_ticker_sections_detects_rate_limit(monkeypatch):
+    data_access.RATE_LIMIT_COOLDOWNS.clear()
+
+    class Response:
+        status_code = 429
+        headers = {"Retry-After": "7"}
+        url = "https://query1.finance.yahoo.com/v7/finance/quote"
+
+        def json(self):
+            return {"message": "Too many requests", "retry_after": 7}
+
+    class SectionError(Exception):
+        def __init__(self, message="Too many requests"):
+            super().__init__(message)
+            self.response = Response()
+
+    class FaultyTicker:
+        def __init__(self, ticker):
+            self.financial_data = {}
+            self.asset_profile = {}
+            self.key_stats = {}
+            self.quote_type = {}
+            self.price = {}
+
+        @property
+        def summary_detail(self):
+            raise SectionError()
+
+        def history(self, period):  # pragma: no cover - unused in this test
+            return pd.DataFrame()
+
+    sections = data_access.fetch_ticker_sections("ERR", ticker_cls=FaultyTicker)
+
+    rate_limit = sections["error"].get("rate_limit")
+    assert isinstance(rate_limit, data_access.RateLimitError)
+    assert rate_limit.retry_after == 7
+    assert rate_limit.host == "query1.finance.yahoo.com"
+    assert data_access.RATE_LIMIT_COOLDOWNS[rate_limit.host] > data_access._utcnow()
+
+
+def test_fetch_ticker_sections_skips_during_cooldown(monkeypatch):
+    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(data_access, "_utcnow", lambda: now)
+    data_access.RATE_LIMIT_COOLDOWNS.clear()
+    data_access.RATE_LIMIT_COOLDOWNS["query1.finance.yahoo.com"] = now + timedelta(
+        seconds=30
+    )
+
+    class CountingTicker:
+        called = False
+
+        def __init__(self, ticker):
+            CountingTicker.called = True
+
+        @property
+        def summary_detail(self):  # pragma: no cover - should not be called
+            return {}
+
+        @property
+        def financial_data(self):  # pragma: no cover - should not be called
+            return {}
+
+        @property
+        def asset_profile(self):  # pragma: no cover - should not be called
+            return {}
+
+        @property
+        def key_stats(self):  # pragma: no cover - should not be called
+            return {}
+
+        @property
+        def quote_type(self):  # pragma: no cover - should not be called
+            return {}
+
+        @property
+        def price(self):  # pragma: no cover - should not be called
+            return {}
+
+        def history(self, period):  # pragma: no cover - should not be called
+            return pd.DataFrame()
+
+    sections = data_access.fetch_ticker_sections("AAPL", ticker_cls=CountingTicker)
+
+    assert sections["summary_detail"] == {}
+    assert sections["error"]["rate_limit"].remaining == 30
+    assert CountingTicker.called is False
+    data_access.RATE_LIMIT_COOLDOWNS.clear()

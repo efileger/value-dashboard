@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+from stock_dashboard import data_access
 import stock_dashboard.ui as ui
 
 
@@ -8,7 +9,8 @@ import stock_dashboard.ui as ui
 def streamlit_spy(monkeypatch):
     """Capture dataframe renders while stubbing out other Streamlit calls."""
 
-    captured: dict[str, object] = {"warnings": []}
+    captured: dict[str, object] = {"warnings": [], "info": [], "toasts": []}
+    data_access.RATE_LIMIT_COOLDOWNS.clear()
 
     def noop(*args, **kwargs):
         return None
@@ -21,10 +23,20 @@ def streamlit_spy(monkeypatch):
         captured["warnings"].append(message)
         return None
 
+    def capture_info(message, *args, **kwargs):
+        captured["info"].append(message)
+        return None
+
+    def capture_toast(message, *args, **kwargs):
+        captured["toasts"].append(message)
+        return None
+
     for func in ["subheader", "markdown", "error"]:
         monkeypatch.setattr(ui.st, func, noop)
     monkeypatch.setattr(ui.st, "dataframe", capture_dataframe)
     monkeypatch.setattr(ui.st, "warning", capture_warning)
+    monkeypatch.setattr(ui.st, "info", capture_info)
+    monkeypatch.setattr(ui.st, "toast", capture_toast)
 
     return captured
 
@@ -33,7 +45,9 @@ def streamlit_spy(monkeypatch):
 def stubbed_streamlit(monkeypatch):
     """Provide no-op Streamlit functions for error-path tests."""
 
-    for func in ["subheader", "markdown", "dataframe", "error", "warning"]:
+    data_access.RATE_LIMIT_COOLDOWNS.clear()
+
+    for func in ["subheader", "markdown", "dataframe", "error", "warning", "info", "toast"]:
         monkeypatch.setattr(ui.st, func, lambda *args, **kwargs: None)
 
 
