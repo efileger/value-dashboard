@@ -111,7 +111,7 @@ def display_stock(ticker: str, ticker_cls=None):
     st.markdown(f"**Shares Outstanding**: {shares_outstanding}")
 
     df, pass_count, red_count = _render_metric_rows(metrics)
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, width="stretch")
 
     score = f"{pass_count} ✅ / {red_count} ❌"
     st.markdown(f"### Snapshot Score: {score}")
