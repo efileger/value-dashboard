@@ -117,3 +117,34 @@ def test_default_watchlist_uses_valid_symbol(monkeypatch):
 
     assert "KKO" not in watchlist
     assert "KO" in watchlist
+
+
+def test_fetch_ticker_sections_records_error_details():
+    class Response:
+        status_code = 503
+
+    class SectionError(Exception):
+        def __init__(self, message="API unavailable"):
+            super().__init__(message)
+            self.response = Response()
+
+    class FaultyTicker:
+        def __init__(self, ticker):
+            self.financial_data = {}
+            self.asset_profile = {}
+            self.key_stats = {}
+            self.quote_type = {}
+            self.price = {}
+
+        @property
+        def summary_detail(self):
+            raise SectionError()
+
+        def history(self, period):  # pragma: no cover - unused in this test
+            return pd.DataFrame()
+
+    sections = data_access.fetch_ticker_sections("ERR", ticker_cls=FaultyTicker)
+
+    assert sections["summary_detail"] == {}
+    assert sections["error"]["status_code"] == 503
+    assert "API unavailable" in sections["error"]["message"]
