@@ -11,7 +11,6 @@ import pytest
 STREAMLIT_CLI = shutil.which("streamlit")
 
 
-@pytest.mark.skipif(STREAMLIT_CLI is None, reason="Streamlit CLI not available")
 def test_module_exports_core_attributes():
     import stock_dashboard as module
 
