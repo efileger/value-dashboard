@@ -178,13 +178,41 @@ def fetch_ticker_sections(ticker: str, ticker_cls: type[Ticker] = Ticker) -> dic
 
     if is_smoke_mode():
         return {
-            "summary_detail": {},
-            "financial_data": {},
-            "asset_profile": {},
-            "key_stats": {},
-            "quote_type": {"symbol": ticker, "longName": f"{ticker} (smoke mode)"},
-            "price": {"shortName": ticker},
-            "buybacks": None,
+            "summary_detail": {
+                "trailingPE": 15.0,
+                "priceToBook": 2.1,
+                "priceToSalesTrailing12Months": 4.2,
+                "dividendYield": 0.012,
+                "pegRatio": 1.3,
+            },
+            "financial_data": {
+                "profitMargins": 0.22,
+                "returnOnEquity": 0.17,
+                "currentRatio": 2.1,
+                "quickRatio": 1.6,
+                "revenueGrowth": 0.07,
+                "earningsGrowth": 0.06,
+                "operatingMargins": 0.14,
+                "debtToEquity": 42.0,
+                "freeCashflow": 3.2e10,
+                "operatingCashflow": 4.5e10,
+                "totalRevenue": 2.4e11,
+                "totalDebt": 5.5e10,
+            },
+            "asset_profile": {"industry": "Demo Software", "sector": "Technology"},
+            "key_stats": {
+                "marketCap": 1.6e12,
+                "sharesOutstanding": 1.6e10,
+                "revenuePerShare": 14.5,
+                "enterpriseToEbitda": 14.0,
+                "heldPercentInsiders": 0.08,
+            },
+            "quote_type": {
+                "symbol": ticker,
+                "longName": f"{ticker} Demo Corp",
+            },
+            "price": {"shortName": f"{ticker} Demo"},
+            "buybacks": True,
         }
 
     ticker_client = ticker_cls(ticker)
