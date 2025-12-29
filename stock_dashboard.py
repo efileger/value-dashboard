@@ -97,6 +97,19 @@ def _safe_section(section, ticker):
     return {}
 
 
+def validate_metrics(metrics: dict, ticker: str):
+    """Ensure the dashboard has real values to display.
+
+    Raises a ``ValueError`` when every metric is missing so the caller can
+    fail fast instead of rendering placeholder UI elements.
+    """
+
+    if not metrics or all(value is None for value in metrics.values()):
+        raise ValueError(f"No metrics available for {ticker}")
+
+    return metrics
+
+
 def resolve_company_name(ticker, quote_type=None, price=None, profile=None):
     """Return the most descriptive company name available for the ticker.
 
@@ -130,6 +143,9 @@ def display_stock(ticker):
     key_stats = _safe_section(t.key_stats, ticker)
     quote_type = _safe_section(t.quote_type, ticker)
     price = _safe_section(t.price, ticker)
+
+    if all(not section for section in (summary, financial, profile, key_stats, price)):
+        raise ValueError(f"No data available for {ticker}")
 
     industry = profile.get("industry", "—")
     sector = profile.get("sector", "—")
@@ -177,7 +193,8 @@ def display_stock(ticker):
 
     peg_ratio = key_stats.get("pegRatio", summary.get("pegRatio", None))
 
-    metrics = {
+    metrics = validate_metrics(
+        {
         "Net Profit Margin (%)": financial.get("profitMargins", None),
         "ROE (%)": financial.get("returnOnEquity", None),
         "P/E Ratio": summary.get("trailingPE", None),
@@ -198,8 +215,10 @@ def display_stock(ticker):
         "EV / EBITDA": key_stats.get("enterpriseToEbitda", None),
         "PEG Ratio": peg_ratio,
         "Insider Ownership (%)": key_stats.get("heldPercentInsiders", None),
-        "Buybacks": buybacks
-    }
+        "Buybacks": buybacks,
+    },
+        ticker,
+    )
 
     rows = []
     pass_count = 0
