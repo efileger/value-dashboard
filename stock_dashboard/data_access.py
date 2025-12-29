@@ -1,5 +1,7 @@
 import logging
 import os
+import random
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -12,8 +14,15 @@ from yahooquery import Ticker
 DEFAULT_WATCHLIST_PATH = Path(__file__).resolve().parent.parent / "watchlist.txt"
 DEFAULT_TICKERS_FALLBACK = "AAPL,MSFT,META"
 _DEFAULT_RATE_LIMIT_SECONDS = 60
+_DEFAULT_FUNDAMENTAL_TTL_SECONDS = int(
+    os.getenv("YF_FUNDAMENTAL_TTL_SECONDS", "21600")
+)
+_DEFAULT_PRICE_TTL_SECONDS = int(os.getenv("YF_PRICE_TTL_SECONDS", "300"))
+_CACHE_DISABLE_ENV_VAR = "YF_DISABLE_CACHE"
 
 logger = logging.getLogger(__name__)
+VALIDATE_TICKER_CACHE: dict[tuple[str, ...], list[str]] = {}
+CACHED_TICKER_CLIENTS: dict[tuple[type[Ticker], tuple[str, ...]], Any] = {}
 
 
 @dataclass
@@ -27,11 +36,55 @@ class RateLimitError:
     remaining: int | None = None
 
 
+CACHED_SECTIONS: dict[tuple[str, str], tuple[datetime, Mapping[str, Any]]] = {}
 RATE_LIMIT_COOLDOWNS: dict[str, datetime] = {}
 
 
 def _utcnow() -> datetime:
     return datetime.now(tz=timezone.utc)
+
+
+def _cache_enabled() -> bool:
+    """Return True when cache can be used."""
+
+    if is_smoke_mode():
+        return False
+
+    value = os.getenv(_CACHE_DISABLE_ENV_VAR, "")
+    return str(value).lower() not in {"1", "true", "yes"}
+
+
+def _section_ttl_seconds(section: str) -> int:
+    if section in {"price", "summary_detail"}:
+        return _DEFAULT_PRICE_TTL_SECONDS
+
+    return _DEFAULT_FUNDAMENTAL_TTL_SECONDS
+
+
+def _get_cached_section(ticker: str, section: str) -> Mapping[str, Any] | None:
+    if not _cache_enabled():
+        return None
+
+    cache_key = (ticker, section)
+    cached = CACHED_SECTIONS.get(cache_key)
+    if not cached:
+        return None
+
+    expires_at, payload = cached
+    if expires_at > _utcnow():
+        return payload
+
+    CACHED_SECTIONS.pop(cache_key, None)
+    return None
+
+
+def _set_cached_section(ticker: str, section: str, payload: Mapping[str, Any]) -> None:
+    if not _cache_enabled():
+        return
+
+    ttl = _section_ttl_seconds(section)
+    expires_at = _utcnow() + timedelta(seconds=ttl)
+    CACHED_SECTIONS[(ticker, section)] = (expires_at, payload)
 
 
 def is_smoke_mode() -> bool:
@@ -63,8 +116,14 @@ def validate_tickers(
     if not normalized:
         return []
 
+    cache_key = tuple(normalized)
+    can_use_cache = _cache_enabled() and ticker_cls is Ticker
+
     if is_smoke_mode():
         return normalized
+
+    if can_use_cache and cache_key in VALIDATE_TICKER_CACHE:
+        return VALIDATE_TICKER_CACHE[cache_key]
 
     try:
         ticker_client = ticker_cls(normalized)
@@ -105,7 +164,39 @@ def validate_tickers(
             ):
                 _add_symbol(symbol)
 
+    if can_use_cache:
+        VALIDATE_TICKER_CACHE[cache_key] = validated
+
     return validated
+
+
+def get_batched_ticker_client(
+    tickers: Iterable[str], ticker_cls: type[Ticker] = Ticker
+) -> Any | None:
+    """Return a shared yahooquery client for multiple tickers when available."""
+
+    if is_smoke_mode():
+        return None
+
+    normalized: tuple[str, ...] = tuple(
+        dict.fromkeys(ticker.upper() for ticker in tickers if ticker)
+    )
+    if not normalized:
+        return None
+
+    pool_key = (ticker_cls, normalized)
+    cached_client = CACHED_TICKER_CLIENTS.get(pool_key)
+    if cached_client is not None:
+        return cached_client
+
+    try:
+        time.sleep(random.uniform(0.05, 0.15))
+        client = ticker_cls(normalized)
+    except Exception:
+        return None
+
+    CACHED_TICKER_CLIENTS[pool_key] = client
+    return client
 
 
 def load_watchlist(path: Path | None = None) -> list[str]:
@@ -285,59 +376,110 @@ def _detect_buybacks(ticker_client: Any, key_stats: Mapping[str, Any]) -> bool |
     return None
 
 
-def fetch_ticker_sections(ticker: str, ticker_cls: type[Ticker] = Ticker) -> dict[str, Mapping[str, Any]]:
-    """Load all ticker sections used by the dashboard."""
+def fetch_ticker_sections(
+    ticker: str, ticker_cls: type[Ticker] = Ticker, ticker_client: Any | None = None
+) -> dict[str, Mapping[str, Any]]:
+    """Load all ticker sections used by the dashboard with caching and jitter."""
+
+    cached_sections: dict[str, Mapping[str, Any]] = {}
+    cache_hits: set[str] = set()
+
+    for section_name in (
+        "summary_detail",
+        "financial_data",
+        "asset_profile",
+        "key_stats",
+        "quote_type",
+        "price",
+        "buybacks",
+    ):
+        cached_section = _get_cached_section(ticker, section_name)
+        if cached_section is not None:
+            cached_sections[section_name] = cached_section
+            cache_hits.add(section_name)
 
     if is_smoke_mode():
         return {
-            "summary_detail": {
-                "trailingPE": 15.0,
-                "priceToBook": 2.1,
-                "priceToSalesTrailing12Months": 4.2,
-                "dividendYield": 0.012,
-                "pegRatio": 1.3,
-            },
-            "financial_data": {
-                "profitMargins": 0.22,
-                "returnOnEquity": 0.17,
-                "currentRatio": 2.1,
-                "quickRatio": 1.6,
-                "revenueGrowth": 0.07,
-                "earningsGrowth": 0.06,
-                "operatingMargins": 0.14,
-                "debtToEquity": 42.0,
-                "freeCashflow": 3.2e10,
-                "operatingCashflow": 4.5e10,
-                "totalRevenue": 2.4e11,
-                "totalDebt": 5.5e10,
-            },
-            "asset_profile": {"industry": "Demo Software", "sector": "Technology"},
-            "key_stats": {
-                "marketCap": 1.6e12,
-                "sharesOutstanding": 1.6e10,
-                "revenuePerShare": 14.5,
-                "enterpriseToEbitda": 14.0,
-                "heldPercentInsiders": 0.08,
-            },
-            "quote_type": {
-                "symbol": ticker,
-                "longName": f"{ticker} Demo Corp",
-            },
-            "price": {"shortName": f"{ticker} Demo"},
-            "buybacks": True,
+            "summary_detail": cached_sections.get(
+                "summary_detail",
+                {
+                    "trailingPE": 15.0,
+                    "priceToBook": 2.1,
+                    "priceToSalesTrailing12Months": 4.2,
+                    "dividendYield": 0.012,
+                    "pegRatio": 1.3,
+                },
+            ),
+            "financial_data": cached_sections.get(
+                "financial_data",
+                {
+                    "profitMargins": 0.22,
+                    "returnOnEquity": 0.17,
+                    "currentRatio": 2.1,
+                    "quickRatio": 1.6,
+                    "revenueGrowth": 0.07,
+                    "earningsGrowth": 0.06,
+                    "operatingMargins": 0.14,
+                    "debtToEquity": 42.0,
+                    "freeCashflow": 3.2e10,
+                    "operatingCashflow": 4.5e10,
+                    "totalRevenue": 2.4e11,
+                    "totalDebt": 5.5e10,
+                },
+            ),
+            "asset_profile": cached_sections.get(
+                "asset_profile", {"industry": "Demo Software", "sector": "Technology"}
+            ),
+            "key_stats": cached_sections.get(
+                "key_stats",
+                {
+                    "marketCap": 1.6e12,
+                    "sharesOutstanding": 1.6e10,
+                    "revenuePerShare": 14.5,
+                    "enterpriseToEbitda": 14.0,
+                    "heldPercentInsiders": 0.08,
+                },
+            ),
+            "quote_type": cached_sections.get(
+                "quote_type",
+                {
+                    "symbol": ticker,
+                    "longName": f"{ticker} Demo Corp",
+                },
+            ),
+            "price": cached_sections.get("price", {"shortName": f"{ticker} Demo"}),
+            "buybacks": cached_sections.get("buybacks", True),
+            "cache_info": {"sections_cached": sorted(cache_hits)},
         }
 
+    missing_sections = [
+        section
+        for section in (
+            "summary_detail",
+            "financial_data",
+            "asset_profile",
+            "key_stats",
+            "quote_type",
+            "price",
+        )
+        if section not in cached_sections
+    ]
+
     active_limit = _active_rate_limit()
-    if active_limit:
+    if active_limit and missing_sections:
         return {
-            "summary_detail": {},
-            "financial_data": {},
-            "asset_profile": {},
-            "key_stats": {},
-            "quote_type": {},
-            "price": {},
-            "buybacks": None,
+            "summary_detail": cached_sections.get("summary_detail", {}),
+            "financial_data": cached_sections.get("financial_data", {}),
+            "asset_profile": cached_sections.get("asset_profile", {}),
+            "key_stats": cached_sections.get("key_stats", {}),
+            "quote_type": cached_sections.get("quote_type", {}),
+            "price": cached_sections.get("price", {}),
+            "buybacks": cached_sections.get("buybacks", None),
             "error": {"message": active_limit.message, "rate_limit": active_limit},
+            "cache_info": {
+                "sections_cached": sorted(cache_hits),
+                "served_from_cache": bool(cache_hits and not missing_sections),
+            },
         }
 
     def _capture_error_details(exc: Exception) -> dict[str, Any]:
@@ -388,25 +530,35 @@ def fetch_ticker_sections(ticker: str, ticker_cls: type[Ticker] = Ticker) -> dic
                 _record_rate_limit(rate_limit)
             return {}, details
 
-    try:
-        ticker_client = ticker_cls(ticker)
-    except Exception as exc:  # noqa: BLE001
-        error_details = _capture_error_details(exc)
-        if rate_limit := error_details.get("rate_limit"):
-            _record_rate_limit(rate_limit)
-        return {
-            "summary_detail": {},
-            "financial_data": {},
-            "asset_profile": {},
-            "key_stats": {},
-            "quote_type": {},
-            "price": {},
-            "buybacks": None,
-            "error": error_details,
-        }
-
-    sections: dict[str, Mapping[str, Any]] = {}
+    sections: dict[str, Mapping[str, Any]] = {**cached_sections}
     error_info: dict[str, Any] = {}
+
+    needs_network = missing_sections or "buybacks" not in sections
+    client_to_use = ticker_client
+
+    if needs_network:
+        time.sleep(random.uniform(0.05, 0.2))
+        try:
+            client_to_use = client_to_use or ticker_cls(ticker)
+        except Exception as exc:  # noqa: BLE001
+            error_details = _capture_error_details(exc)
+            if rate_limit := error_details.get("rate_limit"):
+                _record_rate_limit(rate_limit)
+            return {
+                "summary_detail": sections.get("summary_detail", {}),
+                "financial_data": sections.get("financial_data", {}),
+                "asset_profile": sections.get("asset_profile", {}),
+                "key_stats": sections.get("key_stats", {}),
+                "quote_type": sections.get("quote_type", {}),
+                "price": sections.get("price", {}),
+                "buybacks": sections.get("buybacks", None),
+                "error": error_details,
+                "cache_info": {
+                    "sections_cached": sorted(cache_hits),
+                    "served_from_cache": not missing_sections,
+                    "cache_disabled": not _cache_enabled(),
+                },
+            }
 
     for key, attr_name in (
         ("summary_detail", "summary_detail"),
@@ -416,18 +568,40 @@ def fetch_ticker_sections(ticker: str, ticker_cls: type[Ticker] = Ticker) -> dic
         ("quote_type", "quote_type"),
         ("price", "price"),
     ):
-        section, section_error = _fetch_section(ticker_client, attr_name)
+        if key in sections:
+            continue
+
+        section, section_error = _fetch_section(client_to_use, attr_name)
         sections[key] = section
+        _set_cached_section(ticker, key, section)
         if section_error and not error_info:
             error_info = section_error
 
     if rate_limit := error_info.get("rate_limit"):
         _record_rate_limit(rate_limit)
 
-    buybacks = _detect_buybacks(ticker_client, sections.get("key_stats", {}))
+    if "buybacks" not in sections:
+        buybacks = _detect_buybacks(client_to_use, sections.get("key_stats", {}))
+        sections["buybacks"] = buybacks
+        _set_cached_section(ticker, "buybacks", {"value": buybacks})
+    else:
+        buybacks_value = sections["buybacks"]
+        buybacks = (
+            buybacks_value.get("value")
+            if isinstance(buybacks_value, Mapping)
+            else buybacks_value
+        )
+
+    served_from_cache = not needs_network
+    cache_info = {
+        "sections_cached": sorted(cache_hits),
+        "served_from_cache": served_from_cache,
+        "cache_disabled": not _cache_enabled(),
+    }
 
     return {
         **sections,
         "buybacks": buybacks,
         "error": error_info,
+        "cache_info": cache_info,
     }

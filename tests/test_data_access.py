@@ -239,3 +239,46 @@ def test_fetch_ticker_sections_skips_during_cooldown(monkeypatch):
     assert sections["error"]["rate_limit"].remaining == 30
     assert CountingTicker.called is False
     data_access.RATE_LIMIT_COOLDOWNS.clear()
+
+
+def test_validate_tickers_uses_cache(monkeypatch):
+    class CachedTicker:
+        calls = 0
+
+        def __init__(self, symbols):
+            CachedTicker.calls += 1
+            self.symbols = [s.upper() for s in symbols]
+            self.quote_type = {symbol: {"symbol": symbol} for symbol in self.symbols}
+
+    monkeypatch.setattr(data_access, "Ticker", CachedTicker)
+
+    first = data_access.validate_tickers(["AAPL", "MSFT"], ticker_cls=CachedTicker)
+    second = data_access.validate_tickers(["AAPL", "MSFT"], ticker_cls=CachedTicker)
+
+    assert first == ["AAPL", "MSFT"]
+    assert second == first
+    assert CachedTicker.calls == 1
+
+
+def test_fetch_ticker_sections_serves_from_cache(monkeypatch):
+    class CountingTicker:
+        calls = 0
+
+        def __init__(self, ticker):
+            CountingTicker.calls += 1
+            self.summary_detail = {ticker: {"value": 1}}
+            self.financial_data = {ticker: {"value": 2}}
+            self.asset_profile = {ticker: {"value": 3}}
+            self.key_stats = {ticker: {"sharesOutstanding": [1, 2]}}
+            self.quote_type = {ticker: {"symbol": ticker}}
+            self.price = {ticker: {"value": 4}}
+
+        def history(self, period):
+            return pd.DataFrame()
+
+    result_one = data_access.fetch_ticker_sections("AAPL", ticker_cls=CountingTicker)
+    result_two = data_access.fetch_ticker_sections("AAPL", ticker_cls=CountingTicker)
+
+    assert CountingTicker.calls == 1
+    assert result_one["cache_info"]["served_from_cache"] is False
+    assert result_two["cache_info"]["served_from_cache"] is True

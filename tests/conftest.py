@@ -5,11 +5,22 @@ from stock_dashboard import data_access
 import stock_dashboard.ui as ui
 
 
+@pytest.fixture(autouse=True)
+def clear_caches():
+    data_access.CACHED_SECTIONS.clear()
+    data_access.VALIDATE_TICKER_CACHE.clear()
+    data_access.CACHED_TICKER_CLIENTS.clear()
+    yield
+    data_access.CACHED_SECTIONS.clear()
+    data_access.VALIDATE_TICKER_CACHE.clear()
+    data_access.CACHED_TICKER_CLIENTS.clear()
+
+
 @pytest.fixture
 def streamlit_spy(monkeypatch):
     """Capture dataframe renders while stubbing out other Streamlit calls."""
 
-    captured: dict[str, object] = {"warnings": [], "info": [], "toasts": []}
+    captured: dict[str, object] = {"warnings": [], "info": [], "toasts": [], "captions": []}
     data_access.RATE_LIMIT_COOLDOWNS.clear()
 
     def noop(*args, **kwargs):
@@ -27,6 +38,10 @@ def streamlit_spy(monkeypatch):
         captured["info"].append(message)
         return None
 
+    def capture_caption(message, *args, **kwargs):
+        captured["captions"].append(message)
+        return None
+
     def capture_toast(message, *args, **kwargs):
         captured["toasts"].append(message)
         return None
@@ -37,6 +52,7 @@ def streamlit_spy(monkeypatch):
     monkeypatch.setattr(ui.st, "warning", capture_warning)
     monkeypatch.setattr(ui.st, "info", capture_info)
     monkeypatch.setattr(ui.st, "toast", capture_toast)
+    monkeypatch.setattr(ui.st, "caption", capture_caption)
 
     return captured
 
@@ -47,7 +63,7 @@ def stubbed_streamlit(monkeypatch):
 
     data_access.RATE_LIMIT_COOLDOWNS.clear()
 
-    for func in ["subheader", "markdown", "dataframe", "error", "warning", "info", "toast"]:
+    for func in ["subheader", "markdown", "dataframe", "error", "warning", "info", "toast", "caption"]:
         monkeypatch.setattr(ui.st, func, lambda *args, **kwargs: None)
 
 
