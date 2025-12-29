@@ -2,13 +2,6 @@ import streamlit as st
 import pandas as pd
 from yahooquery import Ticker
 
-st.set_page_config(page_title="Value Investing Dashboard", layout="wide")
-st.title("📊 Value Investing Dashboard")
-
-# Input section
-ticker_input = st.text_input("Enter comma-separated stock tickers (e.g. AAPL,MSFT,META):", "AAPL,MSFT,META")
-tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
-
 # Define thresholds
 thresholds = {
     "Net Profit Margin (%)": 10,
@@ -40,7 +33,7 @@ tooltips = {
     "Dividend Yield (%)": "Graham recommends ONLY to invest in well known companies with solid div yields.",
     "Insider Ownership (%)": "Higher is better",
     "P/E Ratio": "Lower is better. P/E less than 5 year avg = good sign",
-    "Buybacks": "Indicates if the company is actively buying back shares"
+    "Buybacks": "Indicates if the company is actively buying back shares",
 }
 
 def _safe_section(section, ticker):
@@ -51,6 +44,26 @@ def _safe_section(section, ticker):
 
     value = section.get(ticker, {})
     return value if isinstance(value, dict) else {}
+
+
+def resolve_company_name(ticker, quote_type=None, price=None, profile=None):
+    """Return the most descriptive company name available for the ticker.
+
+    Fallback order: quote_type longName -> price longName -> price shortName
+    -> profile longName -> ticker symbol.
+    """
+
+    quote_type = quote_type or {}
+    price = price or {}
+    profile = profile or {}
+
+    return (
+        quote_type.get("longName")
+        or price.get("longName")
+        or price.get("shortName")
+        or profile.get("longName")
+        or ticker
+    )
 
 
 def format_billions(val):
@@ -65,6 +78,7 @@ def display_stock(ticker):
     profile = _safe_section(t.asset_profile, ticker)
     key_stats = _safe_section(t.key_stats, ticker)
     quote_type = _safe_section(t.quote_type, ticker)
+    price = _safe_section(t.price, ticker)
 
     industry = profile.get("industry", "—")
     sector = profile.get("sector", "—")
@@ -76,7 +90,9 @@ def display_stock(ticker):
     shares_outstanding_val = key_stats.get("sharesOutstanding", None)
     shares_outstanding = format_billions(shares_outstanding_val)
 
-    st.subheader(f"{ticker} - {quote_type.get('longName', 'Unknown')}")
+    company_name = resolve_company_name(ticker, quote_type, price, profile)
+
+    st.subheader(f"{ticker} - {company_name}")
     st.markdown(f"**Industry**: {industry}")
     st.markdown(f"**Sector**: {sector}")
     st.markdown(f"**Market Cap**: {market_cap}")
@@ -184,8 +200,23 @@ def display_stock(ticker):
 
     st.markdown(f"### 📌 Suggested Action: **{decision}**")
 
-for ticker in tickers:
-    try:
-        display_stock(ticker)
-    except Exception as e:
-        st.error(f"Error loading {ticker}: {e}")
+
+def main():
+    st.set_page_config(page_title="Value Investing Dashboard", layout="wide")
+    st.title("📊 Value Investing Dashboard")
+
+    ticker_input = st.text_input(
+        "Enter comma-separated stock tickers (e.g. AAPL,MSFT,META):",
+        "AAPL,MSFT,META",
+    )
+    tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
+
+    for ticker in tickers:
+        try:
+            display_stock(ticker)
+        except Exception as e:
+            st.error(f"Error loading {ticker}: {e}")
+
+
+if __name__ == "__main__":
+    main()
