@@ -72,3 +72,48 @@ def test_get_default_watchlist_string_joins_entries(tmp_path, monkeypatch):
     monkeypatch.setattr(data_access, "DEFAULT_WATCHLIST_PATH", watchlist_file)
 
     assert data_access.get_default_watchlist_string() == "AAPL,ADYEY,AMZN"
+
+
+def test_validate_tickers_filters_and_corrects():
+    class DummyTicker:
+        def __init__(self, symbols):
+            self.symbols = ["AAPL", "KO", "MSFT"]
+            self.quote_type = {
+                "AAPL": {"symbol": "AAPL"},
+                "KKO": {"symbol": "KO"},
+                "MSFT": {"symbol": "MSFT"},
+            }
+
+    tickers = ["AAPL", "kko", "MSFT", "BAD"]
+
+    assert data_access.validate_tickers(tickers, ticker_cls=DummyTicker) == [
+        "AAPL",
+        "KO",
+        "MSFT",
+    ]
+
+
+def test_load_watchlist_invokes_validator(tmp_path, monkeypatch):
+    watchlist_file = tmp_path / "watchlist.txt"
+    watchlist_file.write_text("aapl,bad", encoding="utf-8")
+    monkeypatch.setattr(data_access, "DEFAULT_WATCHLIST_PATH", watchlist_file)
+
+    captured = {}
+
+    def fake_validate(tickers, ticker_cls=None):
+        captured["tickers"] = tickers
+        return ["AAPL"]
+
+    monkeypatch.setattr(data_access, "validate_tickers", fake_validate)
+
+    assert data_access.load_watchlist() == ["AAPL"]
+    assert captured["tickers"] == ["AAPL", "BAD"]
+
+
+def test_default_watchlist_uses_valid_symbol(monkeypatch):
+    monkeypatch.setattr(data_access, "validate_tickers", lambda tickers, ticker_cls=None: tickers)
+
+    watchlist = data_access.load_watchlist(data_access.DEFAULT_WATCHLIST_PATH)
+
+    assert "KKO" not in watchlist
+    assert "KO" in watchlist
