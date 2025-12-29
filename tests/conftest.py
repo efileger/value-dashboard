@@ -8,7 +8,7 @@ import stock_dashboard.ui as ui
 def streamlit_spy(monkeypatch):
     """Capture dataframe renders while stubbing out other Streamlit calls."""
 
-    captured: dict[str, object] = {}
+    captured: dict[str, object] = {"warnings": []}
 
     def noop(*args, **kwargs):
         return None
@@ -17,9 +17,14 @@ def streamlit_spy(monkeypatch):
         captured["df"] = df
         return None
 
+    def capture_warning(message, *args, **kwargs):
+        captured["warnings"].append(message)
+        return None
+
     for func in ["subheader", "markdown", "error"]:
         monkeypatch.setattr(ui.st, func, noop)
     monkeypatch.setattr(ui.st, "dataframe", capture_dataframe)
+    monkeypatch.setattr(ui.st, "warning", capture_warning)
 
     return captured
 
@@ -28,7 +33,7 @@ def streamlit_spy(monkeypatch):
 def stubbed_streamlit(monkeypatch):
     """Provide no-op Streamlit functions for error-path tests."""
 
-    for func in ["subheader", "markdown", "dataframe", "error"]:
+    for func in ["subheader", "markdown", "dataframe", "error", "warning"]:
         monkeypatch.setattr(ui.st, func, lambda *args, **kwargs: None)
 
 
@@ -86,6 +91,62 @@ def fake_ticker_cls():
             return self._history
 
     return FakeTicker
+
+
+@pytest.fixture
+def partial_ticker_cls():
+    """Ticker class fixture that omits some metrics but keeps core data."""
+
+    class PartialTicker:
+        def __init__(self, ticker):
+            self.summary_detail = pd.DataFrame(
+                {
+                    "trailingPE": [None],
+                    "priceToBook": [1.5],
+                    "dividendYield": [None],
+                    "pegRatio": [None],
+                    "priceToSalesTrailing12Months": [None],
+                },
+                index=[ticker],
+            )
+            self.financial_data = pd.DataFrame(
+                {
+                    "profitMargins": [None],
+                    "returnOnEquity": [0.12],
+                    "currentRatio": [None],
+                    "operatingCashflow": [None],
+                    "revenueGrowth": [None],
+                    "earningsGrowth": [None],
+                    "operatingMargins": [None],
+                    "debtToEquity": [None],
+                    "freeCashflow": [None],
+                    "ebitdaMargins": [None],
+                    "returnOnAssets": [None],
+                    "totalRevenue": [5_000_000_000],
+                    "totalCash": [1_000_000_000],
+                    "totalDebt": [None],
+                },
+                index=[ticker],
+            )
+            self.asset_profile = {ticker: {"industry": "Tech", "sector": "IT"}}
+            self.key_stats = pd.DataFrame(
+                {
+                    "marketCap": [None],
+                    "sharesOutstanding": [1_000_000_000],
+                    "revenuePerShare": [10.0],
+                    "enterpriseToEbitda": [None],
+                    "heldPercentInsiders": [None],
+                },
+                index=[ticker],
+            )
+            self.quote_type = {ticker: {"longName": "Partial Corp"}}
+            self.price = {ticker: {"shortName": "Partial"}}
+            self._history = pd.DataFrame()
+
+        def history(self, period):
+            return self._history
+
+    return PartialTicker
 
 
 @pytest.fixture

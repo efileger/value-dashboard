@@ -54,8 +54,17 @@ def validate_metrics(metrics: Mapping[str, Any], ticker: str):
     return metrics
 
 
-def ensure_data_available(ticker: str, sections: Mapping[str, Mapping[str, Any]], metrics: Mapping[str, Any]):
-    """Validate that required sections and metrics are populated for the ticker."""
+def ensure_data_available(
+    ticker: str, sections: Mapping[str, Mapping[str, Any]], metrics: Mapping[str, Any]
+) -> dict[str, list[str]]:
+    """Validate that required sections and metrics are populated for the ticker.
+
+    Returns
+    -------
+    dict[str, list[str]]
+        A mapping of warning categories to the missing keys that should be
+        surfaced in the UI without failing the render when core data exists.
+    """
 
     missing_sections = [name for name, data in sections.items() if not data]
     if missing_sections:
@@ -66,15 +75,20 @@ def ensure_data_available(ticker: str, sections: Mapping[str, Mapping[str, Any]]
     if not has_metric_value:
         raise ValueError(f"No metrics available for {ticker} from Yahoo Finance.")
 
+    warnings: dict[str, list[str]] = {"missing_metrics": [], "missing_fields": []}
+
     critical_fields = {
         "market cap": sections.get("key_stats", {}).get("marketCap"),
         "total revenue": sections.get("financial_data", {}).get("totalRevenue"),
         "total debt": sections.get("financial_data", {}).get("totalDebt"),
     }
-    missing_fields = [name for name, value in critical_fields.items() if value is None]
-    if missing_fields:
-        joined = ", ".join(missing_fields)
-        raise ValueError(f"Missing required fields for {ticker}: {joined}.")
+    warnings["missing_fields"] = [name for name, value in critical_fields.items() if value is None]
+
+    warnings["missing_metrics"] = [
+        name for name, value in metrics.items() if value is None
+    ]
+
+    return {key: value for key, value in warnings.items() if value}
 
 
 def compute_metrics(ticker: str, sections: Mapping[str, Mapping[str, Any]]):

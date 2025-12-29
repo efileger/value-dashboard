@@ -62,7 +62,7 @@ def display_stock(ticker: str, ticker_cls=None):
         raise ValueError(f"No data available for {ticker}")
 
     metrics = compute_metrics(ticker, sections)
-    ensure_data_available(ticker, core_sections, metrics)
+    warnings = ensure_data_available(ticker, core_sections, metrics)
 
     profile = core_sections.get("asset_profile", {})
     key_stats = core_sections.get("key_stats", {})
@@ -79,6 +79,24 @@ def display_stock(ticker: str, ticker_cls=None):
     shares_outstanding = format_billions(key_stats.get("sharesOutstanding", "—"))
 
     company_name = data_access.resolve_company_name(ticker, quote_type, price, profile)
+
+    if warnings:
+        warning_messages: list[str] = []
+        missing_fields = warnings.get("missing_fields", [])
+        missing_metrics = warnings.get("missing_metrics", [])
+
+        if missing_fields:
+            warning_messages.append(
+                f"Missing required fields for {ticker}: {', '.join(missing_fields)}"
+            )
+
+        if missing_metrics:
+            warning_messages.append(
+                f"Missing metrics for {ticker}: {', '.join(missing_metrics)}"
+            )
+
+        for message in warning_messages:
+            st.warning(message)
 
     st.subheader(f"{ticker} - {company_name}")
     st.markdown(f"**Industry**: {industry}")
