@@ -191,3 +191,50 @@ def test_display_stock_uses_available_values(monkeypatch):
     assert "df" in captured
     # Ensure multiple metrics were rendered with non-placeholder values
     assert all(value != "N/A" for value in captured["df"]["Value"].head(5))
+
+
+def test_display_stock_raises_on_empty_data(monkeypatch):
+    class EmptyTicker:
+        def __init__(self, ticker):
+            self.summary_detail = {}
+            self.financial_data = {}
+            self.asset_profile = {}
+            self.key_stats = {}
+            self.quote_type = {}
+            self.price = {}
+
+        def history(self, period):
+            return sd.pd.DataFrame()
+
+    for func in ["subheader", "markdown", "dataframe", "error"]:
+        monkeypatch.setattr(sd.st, func, lambda *args, **kwargs: None)
+
+    monkeypatch.setattr(sd, "Ticker", EmptyTicker)
+
+    with pytest.raises(ValueError):
+        sd.display_stock("AAPL")
+
+
+def test_watchlist_entries_fail_fast(monkeypatch):
+    class EmptyTicker:
+        def __init__(self, ticker):
+            self.summary_detail = {}
+            self.financial_data = {}
+            self.asset_profile = {}
+            self.key_stats = {}
+            self.quote_type = {}
+            self.price = {}
+
+        def history(self, period):
+            return sd.pd.DataFrame()
+
+    for func in ["subheader", "markdown", "dataframe", "error"]:
+        monkeypatch.setattr(sd.st, func, lambda *args, **kwargs: None)
+
+    monkeypatch.setattr(sd, "Ticker", EmptyTicker)
+
+    tickers = [t.strip().upper() for t in sd.get_default_watchlist_string().split(",") if t.strip()]
+
+    for ticker in tickers:
+        with pytest.raises(ValueError):
+            sd.display_stock(ticker)
