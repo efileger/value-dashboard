@@ -57,10 +57,30 @@ def display_stock(ticker: str, ticker_cls=None):
     ticker_cls = ticker_cls or data_access.Ticker
     sections = data_access.fetch_ticker_sections(ticker, ticker_cls=ticker_cls)
 
-    core_sections = {k: v for k, v in sections.items() if k != "buybacks"}
+    error_info = sections.get("error") or {}
+    core_sections = {
+        k: v for k, v in sections.items() if k not in {"buybacks", "error"}
+    }
 
     if all(not section for section in core_sections.values()):
-        raise ValueError(f"No data available for {ticker}")
+        message_parts: list[str] = []
+        status_code = error_info.get("status_code")
+        error_message = error_info.get("message")
+
+        if status_code is not None:
+            message_parts.append(f"HTTP {status_code}")
+        if error_message:
+            message_parts.append(str(error_message))
+
+        reason = "; ".join(message_parts) if message_parts else None
+        if not reason:
+            reason = (
+                "No response returned from Yahoo Finance. This may indicate a "
+                "temporary data-source outage or rate limit."
+            )
+            st.warning(reason)
+
+        raise ValueError(f"No data available for {ticker} (reason: {reason})")
 
     metrics = compute_metrics(ticker, sections)
     warnings = ensure_data_available(ticker, core_sections, metrics)

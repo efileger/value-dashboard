@@ -283,3 +283,31 @@ def empty_ticker_cls():
             return pd.DataFrame()
 
     return EmptyTicker
+
+
+@pytest.fixture
+def erroring_ticker_cls():
+    """Ticker class fixture that raises when fetching sections."""
+
+    class RateLimitError(Exception):
+        def __init__(self, message="Rate limit exceeded", status_code=429):
+            super().__init__(message)
+            self.response = type("Response", (), {"status_code": status_code})()
+
+    class ErrorTicker:
+        def __init__(self, ticker):
+            self.ticker = ticker
+            self.financial_data = {}
+            self.asset_profile = {}
+            self.key_stats = {}
+            self.quote_type = {}
+            self.price = {}
+
+        @property
+        def summary_detail(self):
+            raise RateLimitError()
+
+        def history(self, period):
+            return pd.DataFrame()
+
+    return ErrorTicker

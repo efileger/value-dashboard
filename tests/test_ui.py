@@ -61,3 +61,22 @@ def test_watchlist_entries_fail_fast(stubbed_streamlit, empty_ticker_cls):
     for ticker in tickers:
         with pytest.raises(ValueError):
             ui.display_stock(ticker, ticker_cls=empty_ticker_cls)
+
+
+def test_display_stock_surfaces_error_reason(streamlit_spy, erroring_ticker_cls):
+    with pytest.raises(ValueError) as excinfo:
+        ui.display_stock("ERR", ticker_cls=erroring_ticker_cls)
+
+    message = str(excinfo.value)
+    assert "reason" in message
+    assert "429" in message or "Rate limit exceeded" in message
+    assert not streamlit_spy["warnings"]
+
+
+def test_display_stock_warns_when_no_error_details(streamlit_spy, empty_ticker_cls):
+    with pytest.raises(ValueError) as excinfo:
+        ui.display_stock("AAPL", ticker_cls=empty_ticker_cls)
+
+    message = str(excinfo.value)
+    assert "reason" in message
+    assert any("Yahoo Finance" in warning or "outage" in warning for warning in streamlit_spy["warnings"])

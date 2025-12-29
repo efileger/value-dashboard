@@ -215,22 +215,60 @@ def fetch_ticker_sections(ticker: str, ticker_cls: type[Ticker] = Ticker) -> dic
             "buybacks": True,
         }
 
-    ticker_client = ticker_cls(ticker)
-    summary = _safe_section(ticker_client.summary_detail, ticker)
-    financial = _safe_section(ticker_client.financial_data, ticker)
-    profile = _safe_section(ticker_client.asset_profile, ticker)
-    key_stats = _safe_section(ticker_client.key_stats, ticker)
-    quote_type = _safe_section(ticker_client.quote_type, ticker)
-    price = _safe_section(ticker_client.price, ticker)
+    def _capture_error_details(exc: Exception) -> dict[str, Any]:
+        details: dict[str, Any] = {"message": str(exc)}
 
-    buybacks = _detect_buybacks(ticker_client, key_stats)
+        response = getattr(exc, "response", None)
+        status_code = getattr(exc, "status_code", None)
+        if response and not status_code:
+            status_code = getattr(response, "status_code", None)
+
+        if status_code is not None:
+            details["status_code"] = status_code
+
+        return details
+
+    def _fetch_section(client: Any, attr_name: str) -> tuple[Mapping[str, Any], dict[str, Any]]:
+        try:
+            section = getattr(client, attr_name)
+            return _safe_section(section, ticker), {}
+        except Exception as exc:  # noqa: BLE001
+            return {}, _capture_error_details(exc)
+
+    try:
+        ticker_client = ticker_cls(ticker)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "summary_detail": {},
+            "financial_data": {},
+            "asset_profile": {},
+            "key_stats": {},
+            "quote_type": {},
+            "price": {},
+            "buybacks": None,
+            "error": _capture_error_details(exc),
+        }
+
+    sections: dict[str, Mapping[str, Any]] = {}
+    error_info: dict[str, Any] = {}
+
+    for key, attr_name in (
+        ("summary_detail", "summary_detail"),
+        ("financial_data", "financial_data"),
+        ("asset_profile", "asset_profile"),
+        ("key_stats", "key_stats"),
+        ("quote_type", "quote_type"),
+        ("price", "price"),
+    ):
+        section, section_error = _fetch_section(ticker_client, attr_name)
+        sections[key] = section
+        if section_error and not error_info:
+            error_info = section_error
+
+    buybacks = _detect_buybacks(ticker_client, sections.get("key_stats", {}))
 
     return {
-        "summary_detail": summary,
-        "financial_data": financial,
-        "asset_profile": profile,
-        "key_stats": key_stats,
-        "quote_type": quote_type,
-        "price": price,
+        **sections,
         "buybacks": buybacks,
+        "error": error_info,
     }
