@@ -60,6 +60,7 @@ jobs:
         run: |
           timeout 60 streamlit run stock_dashboard.py \
             --server.headless true \
+            --server.address 127.0.0.1 \
             --server.port 8501 \
             --browser.gatherUsageStats false \
             >/tmp/streamlit.log 2>&1 &
@@ -67,6 +68,22 @@ jobs:
       - name: Verify app responds on dev port
         run: |
           set -euo pipefail
+
+          sleep 3
+
+          if ! pgrep -f "streamlit run" >/dev/null; then
+            echo "Streamlit process is not running after startup delay"
+
+            if [ -f /tmp/streamlit.log ]; then
+              echo "--- Begin Streamlit log ---"
+              cat /tmp/streamlit.log
+              echo "--- End Streamlit log ---"
+            else
+              echo "Streamlit log not found at /tmp/streamlit.log"
+            fi
+
+            exit 1
+          fi
 
           if ! timeout 30 bash -c 'until curl -sSf http://localhost:8501/ >/dev/null; do sleep 2; done'; then
             status=$?
