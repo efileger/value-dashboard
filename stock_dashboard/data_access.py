@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -6,6 +7,13 @@ from yahooquery import Ticker
 
 DEFAULT_WATCHLIST_PATH = Path(__file__).resolve().parent.parent / "watchlist.txt"
 DEFAULT_TICKERS_FALLBACK = "AAPL,MSFT,META"
+
+
+def is_smoke_mode() -> bool:
+    """Return True when the smoke-test fast path is enabled."""
+
+    value = os.getenv("SMOKE_TEST", "")
+    return str(value).lower() not in {"", "0", "false", "no"}
 
 
 def validate_tickers(
@@ -29,6 +37,9 @@ def validate_tickers(
 
     if not normalized:
         return []
+
+    if is_smoke_mode():
+        return normalized
 
     try:
         ticker_client = ticker_cls(normalized)
@@ -164,6 +175,17 @@ def _detect_buybacks(ticker_client: Any, key_stats: Mapping[str, Any]) -> bool |
 
 def fetch_ticker_sections(ticker: str, ticker_cls: type[Ticker] = Ticker) -> dict[str, Mapping[str, Any]]:
     """Load all ticker sections used by the dashboard."""
+
+    if is_smoke_mode():
+        return {
+            "summary_detail": {},
+            "financial_data": {},
+            "asset_profile": {},
+            "key_stats": {},
+            "quote_type": {"symbol": ticker, "longName": f"{ticker} (smoke mode)"},
+            "price": {"shortName": ticker},
+            "buybacks": None,
+        }
 
     ticker_client = ticker_cls(ticker)
     summary = _safe_section(ticker_client.summary_detail, ticker)
