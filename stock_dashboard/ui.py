@@ -113,7 +113,8 @@ def main():
         "Enter comma-separated stock tickers (e.g. AAPL,MSFT,META):",
         default_watchlist,
     )
-    tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
+    raw_tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
+    tickers = data_access.validate_tickers(raw_tickers)
 
     for ticker in tickers:
         try:

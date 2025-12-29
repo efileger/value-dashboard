@@ -1,11 +1,75 @@
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 import pandas as pd
 from yahooquery import Ticker
 
 DEFAULT_WATCHLIST_PATH = Path(__file__).resolve().parent.parent / "watchlist.txt"
 DEFAULT_TICKERS_FALLBACK = "AAPL,MSFT,META"
+
+
+def validate_tickers(
+    tickers: Iterable[str], ticker_cls: type[Ticker] = Ticker
+) -> list[str]:
+    """Return a list of valid, uppercase ticker symbols.
+
+    The function asks Yahoo Finance for quote metadata to filter out unknown
+    tickers and to surface canonical symbols when they differ from user input.
+    """
+
+    normalized: list[str] = []
+    seen_inputs: set[str] = set()
+    for ticker in tickers:
+        if not ticker:
+            continue
+        ticker_upper = ticker.upper()
+        if ticker_upper not in seen_inputs:
+            normalized.append(ticker_upper)
+            seen_inputs.add(ticker_upper)
+
+    if not normalized:
+        return []
+
+    try:
+        ticker_client = ticker_cls(normalized)
+        quote_type_section = getattr(ticker_client, "quote_type", {})
+        symbols_attr = getattr(ticker_client, "symbols", [])
+    except Exception:
+        return normalized
+
+    available_symbols: list[str] = []
+    if isinstance(symbols_attr, Iterable) and not isinstance(symbols_attr, (str, bytes)):
+        available_symbols = [s.upper() for s in symbols_attr if isinstance(s, str)]
+
+    validated: list[str] = []
+    seen_validated: set[str] = set()
+
+    def _add_symbol(symbol: str) -> None:
+        symbol_upper = symbol.upper()
+        if symbol_upper not in seen_validated:
+            validated.append(symbol_upper)
+            seen_validated.add(symbol_upper)
+
+    for ticker in normalized:
+        section = _safe_section(quote_type_section, ticker)
+        if section:
+            canonical = (
+                section.get("symbol")
+                or section.get("underlyingSymbol")
+                or ticker
+            )
+            _add_symbol(canonical)
+        elif ticker in available_symbols:
+            _add_symbol(ticker)
+
+    if available_symbols and len(validated) < len(available_symbols):
+        for symbol in available_symbols:
+            if symbol not in seen_validated and (
+                symbol in normalized or not validated
+            ):
+                _add_symbol(symbol)
+
+    return validated
 
 
 def load_watchlist(path: Path | None = None) -> list[str]:
@@ -30,7 +94,7 @@ def load_watchlist(path: Path | None = None) -> list[str]:
         if symbol:
             symbols.append(symbol.upper())
 
-    return symbols
+    return validate_tickers(symbols)
 
 
 def get_default_watchlist_string(path: Path | None = None) -> str:
