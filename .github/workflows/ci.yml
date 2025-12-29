@@ -37,6 +37,10 @@ jobs:
     needs: lint-and-test
     runs-on: ubuntu-latest
     environment: dev
+    env:
+      SMOKE_TEST: '1'
+      STREAMLIT_BROWSER_GATHERUSAGESTATS: 'false'
+      STREAMLIT_SERVER_HEADLESS: 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,9 +57,6 @@ jobs:
           pip install -r requirements.txt
 
       - name: Launch Streamlit in headless mode
-        env:
-          STREAMLIT_BROWSER_GATHERUSAGESTATS: 'false'
-          STREAMLIT_SERVER_HEADLESS: 'true'
         run: |
           timeout 60 streamlit run stock_dashboard.py \
             --server.headless true \
@@ -81,6 +82,8 @@ jobs:
 
             exit 1
           fi
+
+          curl -sSf http://localhost:8501/ >/tmp/streamlit_smoke.html
 
       - name: Show Streamlit logs (on failure)
         if: failure()
