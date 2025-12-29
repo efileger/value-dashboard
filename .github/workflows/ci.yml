@@ -2,7 +2,10 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches:
+      - "main"
+    tags:
+      - "v*"
     paths:
       - "stock_dashboard/**"
       - "stock_dashboard.py"
@@ -12,7 +15,8 @@ on:
       - ".github/workflows/**"
       - "watchlist.txt"
   pull_request:
-    branches: ["**"]
+    branches:
+      - "**"
     paths:
       - "stock_dashboard/**"
       - "stock_dashboard.py"
@@ -22,6 +26,10 @@ on:
       - ".github/workflows/**"
       - "watchlist.txt"
   workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint-and-test:
