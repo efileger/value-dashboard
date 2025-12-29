@@ -65,9 +65,45 @@ jobs:
             --browser.gatherUsageStats false \
             >/tmp/streamlit.log 2>&1 &
 
+          sleep 3
+
+          if ! pgrep -f "streamlit run" >/dev/null; then
+            echo "Streamlit process did not start."
+
+            if [ -f /tmp/streamlit.log ]; then
+              echo "--- Begin Streamlit log ---"
+              cat /tmp/streamlit.log
+              echo "--- End Streamlit log ---"
+            else
+              echo "Streamlit log not found at /tmp/streamlit.log"
+            fi
+
+            exit 1
+          fi
+
       - name: Verify app responds on dev port
         run: |
           set -u
+
+          if ! pgrep -f "streamlit run" >/dev/null; then
+            echo "Streamlit process is not running before readiness checks."
+
+            if [ -f /tmp/streamlit.log ]; then
+              echo "--- Begin Streamlit log ---"
+              cat /tmp/streamlit.log
+              echo "--- End Streamlit log ---"
+            else
+              echo "Streamlit log not found at /tmp/streamlit.log"
+            fi
+
+            exit 1
+          fi
+
+          if [ -f /tmp/streamlit.log ]; then
+            echo "--- Recent Streamlit log entries ---"
+            tail -n 40 /tmp/streamlit.log || true
+            echo "--- End recent Streamlit log entries ---"
+          fi
 
           timeout 30 bash -c 'until curl -sSf http://localhost:8501/ >/dev/null; do sleep 2; done'
           ready_status=$?
