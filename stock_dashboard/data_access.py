@@ -21,7 +21,7 @@ _DEFAULT_PRICE_TTL_SECONDS = int(os.getenv("YF_PRICE_TTL_SECONDS", "300"))
 _CACHE_DISABLE_ENV_VAR = "YF_DISABLE_CACHE"
 
 logger = logging.getLogger(__name__)
-VALIDATE_TICKER_CACHE: dict[tuple[str, ...], list[str]] = {}
+VALIDATE_TICKER_CACHE: dict[tuple[type[Any], tuple[str, ...]], list[str]] = {}
 CACHED_TICKER_CLIENTS: dict[tuple[type[Ticker], tuple[str, ...]], Any] = {}
 
 
@@ -116,8 +116,8 @@ def validate_tickers(
     if not normalized:
         return []
 
-    cache_key = tuple(normalized)
-    can_use_cache = _cache_enabled() and ticker_cls is Ticker
+    cache_key = (ticker_cls, tuple(normalized))
+    can_use_cache = _cache_enabled()
 
     if is_smoke_mode():
         return normalized

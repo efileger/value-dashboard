@@ -66,6 +66,26 @@ __all__ = [
 ]
 
 
+class _LazySubmodule(ModuleType):
+    """Placeholder module that loads the real module on first attribute access."""
+
+    def __init__(self, module_key: str, fq_name: str) -> None:
+        super().__init__(fq_name)
+        self.__dict__["_module_key"] = module_key
+        self.__dict__["_fq_name"] = fq_name
+
+    def _load(self) -> ModuleType:
+        module = _load_module(self.__dict__["_module_key"])
+        sys.modules[self.__dict__["_fq_name"]] = module
+        return module
+
+    def __getattr__(self, item: str) -> Any:  # noqa: D401 - deliberate passthrough
+        """Proxy attribute access to the lazily loaded module."""
+
+        module = self._load()
+        return getattr(module, item)
+
+
 def _handle_import_error(module_name: str, exc: Exception) -> RuntimeError:
     """Return a descriptive error while surfacing a Streamlit-friendly message."""
 
@@ -84,7 +104,17 @@ def _handle_import_error(module_name: str, exc: Exception) -> RuntimeError:
 def _load_module(module_name: str) -> ModuleType:
     fq_name = _LAZY_MODULES[module_name]
     if fq_name in sys.modules:
-        return sys.modules[fq_name]
+        module = sys.modules[fq_name]
+        if isinstance(module, _LazySubmodule):
+            sys.modules.pop(fq_name, None)
+            try:
+                module = importlib.import_module(fq_name)
+            except Exception as exc:  # noqa: BLE001 - propagate wrapped error
+                raise _handle_import_error(module_name, exc) from exc
+        if module is not None:
+            sys.modules[fq_name] = module
+            globals()[module_name] = module
+            return module
 
     try:
         module = importlib.import_module(fq_name)
@@ -92,6 +122,7 @@ def _load_module(module_name: str) -> ModuleType:
         raise _handle_import_error(module_name, exc) from exc
 
     sys.modules.setdefault(fq_name, module)
+    globals()[module_name] = module
     return module
 
 
@@ -116,6 +147,7 @@ def __getattr__(name: str) -> Any:
 
 # Provide module aliases in sys.modules to avoid KeyError lookups when a
 # submodule import fails midway through startup. Modules will be populated on
-# first access via ``__getattr__``.
+# first access via ``__getattr__`` or when the lazy proxy is touched.
 for alias, fq_name in _LAZY_MODULES.items():
-    sys.modules.setdefault(fq_name, sys.modules.get(f"{__name__}.{alias}"))
+    if fq_name not in sys.modules:
+        sys.modules[fq_name] = _LazySubmodule(alias, fq_name)
