@@ -68,7 +68,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          if ! timeout 30 bash -c 'until curl -sSf http://localhost:8501/ >/dev/null; do sleep 2; done'; then
+          run_health_check() {
+            set -euo pipefail
+
+            timeout 30 bash -c 'until curl -sSf http://localhost:8501/ >/dev/null; do sleep 2; done'
+            curl -sSf http://localhost:8501/ >/tmp/streamlit_smoke.html
+          }
+
+          if ! run_health_check; then
             status=$?
             echo "Health check failed with status ${status}"
 
@@ -80,10 +87,14 @@ jobs:
               echo "Streamlit log not found at /tmp/streamlit.log"
             fi
 
-            exit 1
-          fi
+            if ps -ef | grep "[s]treamlit"; then
+              echo "Streamlit process is running."
+            else
+              echo "Streamlit process is not running."
+            fi
 
-          curl -sSf http://localhost:8501/ >/tmp/streamlit_smoke.html
+            exit "${status}"
+          fi
 
       - name: Show Streamlit logs (on failure)
         if: failure()
