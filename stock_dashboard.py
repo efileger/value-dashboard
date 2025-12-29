@@ -80,11 +80,21 @@ def get_default_watchlist_string(path: Path | None = None) -> str:
 def _safe_section(section, ticker):
     """Return ticker-specific data when the yahooquery section is a mapping."""
 
-    if not isinstance(section, dict):
+    if isinstance(section, pd.DataFrame):
+        if ticker in section.index:
+            row = section.loc[ticker]
+            if isinstance(row, pd.Series):
+                return row.to_dict()
         return {}
 
-    value = section.get(ticker, {})
-    return value if isinstance(value, dict) else {}
+    if isinstance(section, pd.Series):
+        return section.to_dict() if section.name == ticker else {}
+
+    if hasattr(section, "get"):
+        value = section.get(ticker, {})
+        return value if isinstance(value, dict) else {}
+
+    return {}
 
 
 def resolve_company_name(ticker, quote_type=None, price=None, profile=None):
