@@ -43,6 +43,16 @@ tooltips = {
     "Buybacks": "Indicates if the company is actively buying back shares"
 }
 
+def _safe_section(section, ticker):
+    """Return ticker-specific data when the yahooquery section is a mapping."""
+
+    if not isinstance(section, dict):
+        return {}
+
+    value = section.get(ticker, {})
+    return value if isinstance(value, dict) else {}
+
+
 def format_billions(val):
     if isinstance(val, (int, float)):
         return f"{val / 1e9:.2f}B"
@@ -50,11 +60,11 @@ def format_billions(val):
 
 def display_stock(ticker):
     t = Ticker(ticker)
-    summary = t.summary_detail.get(ticker, {})
-    financial = t.financial_data.get(ticker, {})
-    profile = t.asset_profile.get(ticker, {})
-    key_stats = t.key_stats.get(ticker, {})
-    quote_type = t.quote_type.get(ticker, {})
+    summary = _safe_section(t.summary_detail, ticker)
+    financial = _safe_section(t.financial_data, ticker)
+    profile = _safe_section(t.asset_profile, ticker)
+    key_stats = _safe_section(t.key_stats, ticker)
+    quote_type = _safe_section(t.quote_type, ticker)
 
     industry = profile.get("industry", "—")
     sector = profile.get("sector", "—")
@@ -78,11 +88,11 @@ def display_stock(ticker):
     buybacks = None
     try:
         hist_data = t.history(period="5y")
-        if not hist_data.empty and 'close' in hist_data.columns:
-            share_counts = t.key_stats.get(ticker, {}).get("sharesOutstanding")
+        if not hist_data.empty and "close" in hist_data.columns:
+            share_counts = key_stats.get("sharesOutstanding")
             if isinstance(share_counts, list) and len(share_counts) > 1:
                 buybacks = share_counts[-1] < share_counts[0]
-    except:
+    except Exception:
         buybacks = None
 
     operating_cashflow = financial.get("operatingCashflow", None)
@@ -155,7 +165,7 @@ def display_stock(ticker):
 
         label = f"{metric}"
         if tooltip:
-            label += f" ⓘ"
+            label += " ⓘ"
             st.markdown(f"<span title='{tooltip}' style='cursor: help;'>{label}</span>", unsafe_allow_html=True)
 
         rows.append((metric, display_val, status))
