@@ -68,14 +68,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          run_health_check() {
+          if ! (
             set -euo pipefail
 
             timeout 30 bash -c 'until curl -sSf http://localhost:8501/ >/dev/null; do sleep 2; done'
             curl -sSf http://localhost:8501/ >/tmp/streamlit_smoke.html
-          }
-
-          if ! run_health_check; then
+          ); then
             status=$?
             echo "Health check failed with status ${status}"
 
