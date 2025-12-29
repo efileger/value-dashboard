@@ -1,5 +1,7 @@
-import streamlit as st
+from pathlib import Path
+
 import pandas as pd
+import streamlit as st
 from yahooquery import Ticker
 
 # Define thresholds
@@ -35,6 +37,45 @@ tooltips = {
     "P/E Ratio": "Lower is better. P/E less than 5 year avg = good sign",
     "Buybacks": "Indicates if the company is actively buying back shares",
 }
+
+DEFAULT_WATCHLIST_PATH = Path(__file__).with_name("watchlist.txt")
+DEFAULT_TICKERS_FALLBACK = "AAPL,MSFT,META"
+
+
+def load_watchlist(path: Path | None = None) -> list[str]:
+    """Load the default watchlist from disk.
+
+    Returns
+    -------
+    list[str]
+        A list of uppercase ticker symbols.
+    """
+
+    watchlist_path = path or DEFAULT_WATCHLIST_PATH
+
+    try:
+        content = watchlist_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+
+    symbols = []
+    for part in content.replace("\n", ",").split(","):
+        symbol = part.strip()
+        if symbol:
+            symbols.append(symbol.upper())
+
+    return symbols
+
+
+def get_default_watchlist_string(path: Path | None = None) -> str:
+    """Return the default comma-separated tickers for the UI input."""
+
+    watchlist = load_watchlist(path)
+    if watchlist:
+        return ",".join(watchlist)
+
+    return DEFAULT_TICKERS_FALLBACK
+
 
 def _safe_section(section, ticker):
     """Return ticker-specific data when the yahooquery section is a mapping."""
@@ -205,9 +246,10 @@ def main():
     st.set_page_config(page_title="Value Investing Dashboard", layout="wide")
     st.title("📊 Value Investing Dashboard")
 
+    default_watchlist = get_default_watchlist_string()
     ticker_input = st.text_input(
         "Enter comma-separated stock tickers (e.g. AAPL,MSFT,META):",
-        "AAPL,MSFT,META",
+        default_watchlist,
     )
     tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
 
