@@ -71,18 +71,23 @@ def ensure_data_available(
         joined = ", ".join(missing_sections)
         raise ValueError(f"No data found for {ticker}: missing sections {joined}.")
 
+    critical_fields = {
+        "market cap": sections.get("key_stats", {}).get("marketCap"),
+        "total revenue": sections.get("financial_data", {}).get("totalRevenue"),
+        "total debt": sections.get("financial_data", {}).get("totalDebt"),
+    }
+
+    missing_fields = [name for name, value in critical_fields.items() if value is None]
+    if len(missing_fields) == len(critical_fields):
+        raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+
     has_metric_value = any(value is not None for value in metrics.values())
     if not has_metric_value:
         raise ValueError(f"No metrics available for {ticker} from Yahoo Finance.")
 
     warnings: dict[str, list[str]] = {"missing_metrics": [], "missing_fields": []}
 
-    critical_fields = {
-        "market cap": sections.get("key_stats", {}).get("marketCap"),
-        "total revenue": sections.get("financial_data", {}).get("totalRevenue"),
-        "total debt": sections.get("financial_data", {}).get("totalDebt"),
-    }
-    warnings["missing_fields"] = [name for name, value in critical_fields.items() if value is None]
+    warnings["missing_fields"] = missing_fields
 
     warnings["missing_metrics"] = [
         name for name, value in metrics.items() if value is None
