@@ -2,64 +2,78 @@ name: CI
 
 on:
   push:
-    branches: ["main", "release/*", "hotfix/*"]
+    branches: ["**"]
   pull_request:
-    branches: ["main"]
-
-permissions:
-  contents: read
-  pull-requests: read
+    branches: ["**"]
 
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install ruff
+          pip install -r requirements-dev.txt
 
-      - name: Lint
-        run: ruff check .
+      - name: Lint with Ruff
+        run: |
+          ruff check .
 
-      - name: Validate importability
-        run: python -m compileall stock_dashboard.py
+      - name: Run tests
+        run: |
+          pytest
 
   dev-deploy:
-    name: Dev deployment plan
-    needs: [lint-and-test]
+    name: Dev deploy smoke
+    needs: lint-and-test
     runs-on: ubuntu-latest
-    environment:
-      name: dev
-      url: https://value-dashboard.streamlit.app/
+    environment: dev
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
+          cache: 'pip'
 
-      - name: Install dependencies
+      - name: Install runtime dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Create immutable dev artifact
-        run: git archive --format=tar.gz -o value-dashboard-dev.tar.gz HEAD
+      - name: Launch Streamlit in headless mode
+        env:
+          STREAMLIT_BROWSER_GATHERUSAGESTATS: 'false'
+          STREAMLIT_SERVER_HEADLESS: 'true'
+        run: |
+          timeout 60 streamlit run stock_dashboard.py \
+            --server.headless true \
+            --server.port 8501 \
+            --browser.gatherUsageStats false \
+            >/tmp/streamlit.log 2>&1 &
 
-      - name: Upload artifact
+      - name: Verify app responds on dev port
+        run: |
+          timeout 30 bash -c 'until curl -sSf http://localhost:8501/ >/dev/null; do sleep 2; done'
+
+      - name: Stop Streamlit server
+        if: always()
+        run: pkill -f "streamlit run" || true
+
+      - name: Upload Streamlit logs on failure
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: value-dashboard-dev
-          path: value-dashboard-dev.tar.gz
+          name: streamlit-dev-logs
+          path: /tmp/streamlit.log
