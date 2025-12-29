@@ -65,7 +65,22 @@ jobs:
 
       - name: Verify app responds on dev port
         run: |
-          timeout 30 bash -c 'until curl -sSf http://localhost:8501/ >/dev/null; do sleep 2; done'
+          set -euo pipefail
+
+          if ! timeout 30 bash -c 'until curl -sSf http://localhost:8501/ >/dev/null; do sleep 2; done'; then
+            status=$?
+            echo "Health check failed with status ${status}"
+
+            if [ -f /tmp/streamlit.log ]; then
+              echo "--- Begin Streamlit log ---"
+              cat /tmp/streamlit.log
+              echo "--- End Streamlit log ---"
+            else
+              echo "Streamlit log not found at /tmp/streamlit.log"
+            fi
+
+            exit 1
+          fi
 
       - name: Show Streamlit logs (on failure)
         if: failure()
