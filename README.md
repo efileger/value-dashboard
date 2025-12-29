@@ -12,6 +12,7 @@ This app lets you evaluate companies using key value investing principles — li
 - **MinimumCD-aligned CI**: every change must pass the GitHub Actions workflow (`CI`) covering linting and import validation before merging.
 - **12-Factor friendly**: any future secrets or configuration (e.g., API keys, caching flags) should be supplied via environment variables rather than hard-coding them.
 - **Branch protections**: enable required status checks on `main`, require pull requests for merges, and block force-pushes/deletions to keep the delivery stream healthy.
+- **Dev environment gate**: pull requests target a `dev` environment check that builds an immutable artifact for preview/streamlit redeploy, satisfying required environment protection before merging.
 - **Pipeline as the path to prod**: ship only through the application pipeline with quality gates (static analysis, tests, security checks) and stop-the-line behavior on failures.
 - **Artifacts and rollback**: build immutable artifacts per commit, carry configuration with the artifact, and keep deployments reversible.
 - **Environments**: reserve GitHub environments (e.g., `production`) with required reviewers for deployments if additional stages are added later.
