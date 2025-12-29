@@ -126,6 +126,19 @@ def main():
     st.set_page_config(page_title="Value Investing Dashboard", layout="wide")
     st.title("📊 Value Investing Dashboard")
 
+    if data_access.is_smoke_mode():
+        st.info(
+            "Smoke test mode enabled. Skipping live ticker validation and data fetches."
+        )
+        st.markdown(
+            "This lightweight page confirms the server is running without reaching "
+            "out to Yahoo Finance. Disable `SMOKE_TEST` to load live ticker data."
+        )
+        st.markdown(
+            f"Default watchlist: `{data_access.get_default_watchlist_string()}`"
+        )
+        return
+
     default_watchlist = data_access.get_default_watchlist_string()
     ticker_input = st.text_input(
         "Enter comma-separated stock tickers (e.g. AAPL,MSFT,META):",
