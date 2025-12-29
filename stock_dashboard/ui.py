@@ -6,6 +6,7 @@ from .metrics import (
     compute_metrics,
     ensure_data_available,
     format_billions,
+    resolve_critical_fields,
     thresholds,
     tooltips,
 )
@@ -70,12 +71,14 @@ def display_stock(ticker: str, ticker_cls=None):
     quote_type = core_sections.get("quote_type", {})
     price = core_sections.get("price", {})
 
+    critical_fields = resolve_critical_fields(core_sections)
+
     industry = profile.get("industry", "—")
     sector = profile.get("sector", "—")
-    market_cap = format_billions(key_stats.get("marketCap", "—"))
-    total_revenue = format_billions(financial.get("totalRevenue", "—"))
+    market_cap = format_billions(critical_fields.get("market cap", "—"))
+    total_revenue = format_billions(critical_fields.get("total revenue", "—"))
     total_cash = format_billions(financial.get("totalCash", "—"))
-    total_debt = format_billions(financial.get("totalDebt", "—"))
+    total_debt = format_billions(critical_fields.get("total debt", "—"))
     shares_outstanding = format_billions(key_stats.get("sharesOutstanding", "—"))
 
     company_name = data_access.resolve_company_name(ticker, quote_type, price, profile)

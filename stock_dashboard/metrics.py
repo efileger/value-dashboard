@@ -41,6 +41,39 @@ def format_billions(val: Any) -> Any:
     return val
 
 
+def resolve_with_fallback(
+    sections: Mapping[str, Mapping[str, Any]],
+    fallback_chain: list[tuple[str, str]],
+) -> Any:
+    """Return the first non-``None`` value from the ordered fallback chain."""
+
+    for section_name, field_name in fallback_chain:
+        value = sections.get(section_name, {}).get(field_name)
+        if value is not None:
+            return value
+    return None
+
+
+def resolve_critical_fields(
+    sections: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Resolve critical fields using prioritized fallbacks."""
+
+    fallback_map: dict[str, list[tuple[str, str]]] = {
+        "market cap": [
+            ("key_stats", "marketCap"),
+            ("price", "marketCap"),
+            ("summary_detail", "marketCap"),
+        ],
+        "total revenue": [("financial_data", "totalRevenue")],
+        "total debt": [("financial_data", "totalDebt")],
+    }
+
+    return {
+        name: resolve_with_fallback(sections, chain) for name, chain in fallback_map.items()
+    }
+
+
 def validate_metrics(metrics: Mapping[str, Any], ticker: str):
     """Ensure the dashboard has real values to display.
 
@@ -71,11 +104,7 @@ def ensure_data_available(
         joined = ", ".join(missing_sections)
         raise ValueError(f"No data found for {ticker}: missing sections {joined}.")
 
-    critical_fields = {
-        "market cap": sections.get("key_stats", {}).get("marketCap"),
-        "total revenue": sections.get("financial_data", {}).get("totalRevenue"),
-        "total debt": sections.get("financial_data", {}).get("totalDebt"),
-    }
+    critical_fields = resolve_critical_fields(sections)
 
     missing_fields = [name for name, value in critical_fields.items() if value is None]
     if len(missing_fields) == len(critical_fields):
