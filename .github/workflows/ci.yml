@@ -67,16 +67,13 @@ jobs:
 
       - name: Verify app responds on dev port
         run: |
-          set -euo pipefail
+          set -u
 
-          if ! (
-            set -euo pipefail
+          timeout 30 bash -c 'until curl -sSf http://localhost:8501/ >/dev/null; do sleep 2; done'
+          ready_status=$?
 
-            timeout 30 bash -c 'until curl -sSf http://localhost:8501/ >/dev/null; do sleep 2; done'
-            curl -sSf http://localhost:8501/ >/tmp/streamlit_smoke.html
-          ); then
-            status=$?
-            echo "Health check failed with status ${status}"
+          if [ "${ready_status}" -ne 0 ]; then
+            echo "Readiness check failed with status ${ready_status}"
 
             if [ -f /tmp/streamlit.log ]; then
               echo "--- Begin Streamlit log ---"
@@ -86,13 +83,26 @@ jobs:
               echo "Streamlit log not found at /tmp/streamlit.log"
             fi
 
-            if ps -ef | grep "[s]treamlit"; then
-              echo "Streamlit process is running."
+            ps -ef | grep "[s]treamlit" || true
+            exit 1
+          fi
+
+          curl -sSf http://localhost:8501/ >/tmp/streamlit_smoke.html
+          curl_status=$?
+
+          if [ "${curl_status}" -ne 0 ]; then
+            echo "App fetch failed with status ${curl_status}"
+
+            if [ -f /tmp/streamlit.log ]; then
+              echo "--- Begin Streamlit log ---"
+              cat /tmp/streamlit.log
+              echo "--- End Streamlit log ---"
             else
-              echo "Streamlit process is not running."
+              echo "Streamlit log not found at /tmp/streamlit.log"
             fi
 
-            exit "${status}"
+            ps -ef | grep "[s]treamlit" || true
+            exit 1
           fi
 
       - name: Show Streamlit logs (on failure)
