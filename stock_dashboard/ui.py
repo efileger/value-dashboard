@@ -53,9 +53,11 @@ def _render_metric_rows(metrics: dict[str, object]) -> tuple[pd.DataFrame, int, 
     return df, pass_count, red_count
 
 
-def display_stock(ticker: str, ticker_cls=None):
+def display_stock(ticker: str, ticker_cls=None, ticker_client=None):
     ticker_cls = ticker_cls or data_access.Ticker
-    sections = data_access.fetch_ticker_sections(ticker, ticker_cls=ticker_cls)
+    sections = data_access.fetch_ticker_sections(
+        ticker, ticker_cls=ticker_cls, ticker_client=ticker_client
+    )
 
     error_info = sections.get("error") or {}
     rate_limit = error_info.get("rate_limit")
@@ -97,8 +99,32 @@ def display_stock(ticker: str, ticker_cls=None):
 
         raise ValueError(f"No data available for {ticker} (reason: {reason})")
 
-    metrics = compute_metrics(ticker, sections)
-    warnings = ensure_data_available(ticker, core_sections, metrics)
+    cache_info = sections.get("cache_info", {})
+    cache_sections = cache_info.get("sections_cached") or []
+    if cache_info.get("served_from_cache"):
+        st.caption("💾 Served fully from cache")
+    elif cache_sections:
+        st.caption(
+            "💾 Partially served from cache: "
+            + ", ".join(sorted(cache_sections))
+        )
+    elif cache_info.get("cache_disabled"):
+        st.caption("💾 Cache disabled for this request")
+
+    try:
+        metrics = compute_metrics(ticker, sections)
+        warnings = ensure_data_available(ticker, core_sections, metrics)
+    except ValueError as exc:  # noqa: BLE001
+        warning_message = str(exc)
+        if not error_info:
+            warning_message = (
+                "No response returned from Yahoo Finance. This may indicate a "
+                "temporary data-source outage or rate limit."
+            )
+        st.warning(warning_message)
+        raise ValueError(
+            f"No data available for {ticker} (reason: {warning_message})"
+        ) from exc
 
     profile = core_sections.get("asset_profile", {})
     key_stats = core_sections.get("key_stats", {})
@@ -182,10 +208,11 @@ def main():
     )
     raw_tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
     tickers = data_access.validate_tickers(raw_tickers)
+    batched_client = data_access.get_batched_ticker_client(tickers)
 
     for ticker in tickers:
         try:
-            display_stock(ticker)
+            display_stock(ticker, ticker_client=batched_client)
         except Exception as e:
             st.error(f"Error loading {ticker}: {e}")
 
