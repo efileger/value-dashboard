@@ -56,7 +56,7 @@ def test_resolve_company_name_uses_short_name_then_profile_then_ticker():
 def test_load_watchlist_reads_default_uppercase(tmp_path, monkeypatch):
     watchlist_file = tmp_path / "watchlist.txt"
     watchlist_file.write_text("aapl, msft\n nvda", encoding="utf-8")
-    monkeypatch.setattr(sd, "DEFAULT_WATCHLIST_PATH", watchlist_file)
+    monkeypatch.setattr(sd.data_access, "DEFAULT_WATCHLIST_PATH", watchlist_file)
 
     assert sd.load_watchlist() == ["AAPL", "MSFT", "NVDA"]
 
@@ -109,7 +109,7 @@ def test_ensure_data_available_detects_missing_metrics():
 
 def test_get_default_watchlist_string_uses_fallback(monkeypatch, tmp_path):
     missing_path = tmp_path / "missing_watchlist.txt"
-    monkeypatch.setattr(sd, "DEFAULT_WATCHLIST_PATH", missing_path)
+    monkeypatch.setattr(sd.data_access, "DEFAULT_WATCHLIST_PATH", missing_path)
 
     assert sd.get_default_watchlist_string() == sd.DEFAULT_TICKERS_FALLBACK
 
@@ -117,7 +117,7 @@ def test_get_default_watchlist_string_uses_fallback(monkeypatch, tmp_path):
 def test_get_default_watchlist_string_joins_entries(tmp_path, monkeypatch):
     watchlist_file = tmp_path / "watchlist.txt"
     watchlist_file.write_text("AAPL,ADYEY,AMZN", encoding="utf-8")
-    monkeypatch.setattr(sd, "DEFAULT_WATCHLIST_PATH", watchlist_file)
+    monkeypatch.setattr(sd.data_access, "DEFAULT_WATCHLIST_PATH", watchlist_file)
 
     assert sd.get_default_watchlist_string() == "AAPL,ADYEY,AMZN"
 
@@ -184,9 +184,8 @@ def test_display_stock_uses_available_values(monkeypatch):
     for func in ["subheader", "markdown", "error"]:
         monkeypatch.setattr(sd.st, func, noop)
     monkeypatch.setattr(sd.st, "dataframe", capture_dataframe)
-    monkeypatch.setattr(sd, "Ticker", FakeTicker)
 
-    sd.display_stock("AAPL")
+    sd.display_stock("AAPL", ticker_cls=FakeTicker)
 
     assert "df" in captured
     # Ensure multiple metrics were rendered with non-placeholder values
@@ -209,10 +208,8 @@ def test_display_stock_raises_on_empty_data(monkeypatch):
     for func in ["subheader", "markdown", "dataframe", "error"]:
         monkeypatch.setattr(sd.st, func, lambda *args, **kwargs: None)
 
-    monkeypatch.setattr(sd, "Ticker", EmptyTicker)
-
     with pytest.raises(ValueError):
-        sd.display_stock("AAPL")
+        sd.display_stock("AAPL", ticker_cls=EmptyTicker)
 
 
 def test_watchlist_entries_fail_fast(monkeypatch):
@@ -231,10 +228,8 @@ def test_watchlist_entries_fail_fast(monkeypatch):
     for func in ["subheader", "markdown", "dataframe", "error"]:
         monkeypatch.setattr(sd.st, func, lambda *args, **kwargs: None)
 
-    monkeypatch.setattr(sd, "Ticker", EmptyTicker)
-
     tickers = [t.strip().upper() for t in sd.get_default_watchlist_string().split(",") if t.strip()]
 
     for ticker in tickers:
         with pytest.raises(ValueError):
-            sd.display_stock(ticker)
+            sd.display_stock(ticker, ticker_cls=EmptyTicker)

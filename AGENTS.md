@@ -27,6 +27,9 @@ This repository follows trunk-based development practices with a minimumCD minds
 - Track cycle time and favor a unified team backlog with prioritized features.
 - Use telemetry/observability and monitoring/alerting to detect regressions quickly; ensure logging infrastructure supports debugging.
 
+## Implementation Preferences
+- Favor loosely coupled modules with clear seams (data access, computation, and UI/presentation) so changes in one area do not ripple unnecessarily through the others.
+
 ## Additional Expectations
 - Update documentation (README, runbooks) when delivery or operational processes change.
 - Guard against brittle dependencies by handling API changes defensively and surfacing clear user-facing errors.
