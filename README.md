@@ -45,6 +45,11 @@ Or build it yourself below
 streamlit run stock_dashboard.py
 ```
 
+### Development
+- Install dev tools: `pip install -r requirements-dev.txt`
+- Run linting: `ruff check .`
+- Run tests: `pytest`
+
 ---
 
 ## 📈 Metrics Evaluated
