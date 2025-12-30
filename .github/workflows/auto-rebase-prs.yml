@@ -27,7 +27,7 @@ jobs:
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.repository }}
         run: |
-          prs=$(gh pr list --state open --json number,headRefName,headRepositoryOwner --jq \
+          prs=$(gh pr list --repo "$REPO" --state open --json number,headRefName,headRepositoryOwner --jq \
             '[.[] | select(.headRepositoryOwner.login == env.OWNER) | {number: .number, branch: .headRefName}]')
 
           if [ -z "$prs" ]; then
