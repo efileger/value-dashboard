@@ -74,6 +74,17 @@ def test_display_stock_surfaces_error_reason(streamlit_spy, erroring_ticker_cls)
     data_access.RATE_LIMIT_COOLDOWNS.clear()
 
 
+def test_display_stock_surfaces_rate_limit_details(streamlit_spy, erroring_ticker_cls):
+    captured = streamlit_spy
+
+    ui.display_stock("ERR", ticker_cls=erroring_ticker_cls)
+
+    assert any("HTTP 429" in message for message in captured["info"])
+    assert any("query2.finance.yahoo.com" in message for message in captured["info"])
+    assert "Diagnostics for ERR" in captured["expanders"]
+    assert captured["json_calls"], "Expected diagnostic payload to be recorded"
+
+
 def test_display_stock_warns_when_no_error_details(streamlit_spy, empty_ticker_cls):
     data_access.RATE_LIMIT_COOLDOWNS.clear()
 
@@ -83,3 +94,15 @@ def test_display_stock_warns_when_no_error_details(streamlit_spy, empty_ticker_c
     message = str(excinfo.value)
     assert "reason" in message
     assert any("Yahoo Finance" in warning or "outage" in warning for warning in streamlit_spy["warnings"])
+
+
+def test_display_stock_includes_http_error_context(streamlit_spy, http_error_ticker_cls):
+    captured = streamlit_spy
+
+    with pytest.raises(ValueError):
+        ui.display_stock("FAIL", ticker_cls=http_error_ticker_cls)
+
+    assert any("HTTP 500" in warning for warning in captured["warnings"])
+    assert any("api.yahoo.test" in warning for warning in captured["warnings"])
+    assert "Diagnostics for FAIL" in captured["expanders"]
+    assert captured["json_calls"], "Expected diagnostic payload to be recorded"

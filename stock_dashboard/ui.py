@@ -56,6 +56,64 @@ def _render_metric_rows(metrics: dict[str, object]) -> tuple[pd.DataFrame, int, 
     return df, pass_count, red_count
 
 
+def _format_error_details(error_info: dict[str, object]) -> str | None:
+    if not error_info:
+        return None
+
+    rate_limit = error_info.get("rate_limit")
+    status_code = error_info.get("status_code") or getattr(rate_limit, "status_code", None)
+    host = error_info.get("host") or getattr(rate_limit, "host", None)
+    retry_after = (
+        error_info.get("retry_after")
+        or getattr(rate_limit, "retry_after", None)
+        or getattr(rate_limit, "remaining", None)
+    )
+    headers = error_info.get("headers") or getattr(rate_limit, "headers", None)
+    message = error_info.get("message") or getattr(rate_limit, "message", None)
+
+    parts: list[str] = []
+    if status_code is not None:
+        parts.append(f"HTTP {status_code}")
+    if host:
+        parts.append(f"host={host}")
+    if retry_after:
+        parts.append(f"retry_after={retry_after}s")
+    if headers:
+        parts.append(f"headers={headers}")
+    if message:
+        parts.append(str(message))
+
+    return "; ".join(parts) if parts else None
+
+
+def _sanitize_error_info(error_info: dict[str, object]) -> dict[str, object]:
+    if not error_info:
+        return {}
+
+    sanitized = dict(error_info)
+    rate_limit = sanitized.get("rate_limit")
+    if isinstance(rate_limit, data_access.RateLimitError):
+        sanitized["rate_limit"] = {
+            "status_code": rate_limit.status_code,
+            "message": rate_limit.message,
+            "retry_after": rate_limit.retry_after,
+            "headers": dict(rate_limit.headers),
+            "host": rate_limit.host,
+            "payload": rate_limit.payload,
+            "remaining": rate_limit.remaining,
+        }
+
+    return sanitized
+
+
+def _render_error_diagnostics(ticker: str, error_info: dict[str, object]) -> None:
+    if not error_info:
+        return
+
+    with st.expander(f"Diagnostics for {ticker}"):
+        st.json(_sanitize_error_info(error_info))
+
+
 def display_stock(ticker: str, ticker_cls=None, ticker_client=None):
     ticker_cls = ticker_cls or data_access.Ticker
     sections = data_access.fetch_ticker_sections(
@@ -65,12 +123,19 @@ def display_stock(ticker: str, ticker_cls=None, ticker_client=None):
     error_info = sections.get("error") or {}
     rate_limit = error_info.get("rate_limit")
     if isinstance(rate_limit, data_access.RateLimitError):
+        retry_after = rate_limit.retry_after or rate_limit.remaining or 0
         remaining_seconds = rate_limit.remaining or rate_limit.retry_after or 0
         host = rate_limit.host or "Yahoo Finance"
+        details = _format_error_details(error_info) or "Rate limit detected"
         message = (
             f"Rate limit detected from {host}. Please wait {remaining_seconds} seconds before retrying."
         )
+        if retry_after:
+            message += f" Retry-After header indicates {retry_after} seconds."
+        if details and details not in message:
+            message += f" Details: {details}."
         st.info(message)
+        _render_error_diagnostics(ticker, error_info)
         try:
             st.toast(message)
         except Exception:
@@ -84,13 +149,9 @@ def display_stock(ticker: str, ticker_cls=None, ticker_client=None):
 
     if all(not section for section in core_sections.values()):
         message_parts: list[str] = []
-        status_code = error_info.get("status_code")
-        error_message = error_info.get("message")
-
-        if status_code is not None:
-            message_parts.append(f"HTTP {status_code}")
-        if error_message:
-            message_parts.append(str(error_message))
+        detailed_reason = _format_error_details(error_info)
+        if detailed_reason:
+            message_parts.append(detailed_reason)
 
         reason = "; ".join(message_parts) if message_parts else None
         if not reason:
@@ -98,8 +159,9 @@ def display_stock(ticker: str, ticker_cls=None, ticker_client=None):
                 "No response returned from Yahoo Finance. This may indicate a "
                 "temporary data-source outage or rate limit."
             )
-            st.warning(reason)
 
+        st.warning(reason)
+        _render_error_diagnostics(ticker, error_info)
         raise ValueError(f"No data available for {ticker} (reason: {reason})")
 
     cache_info = sections.get("cache_info", {})
@@ -118,13 +180,17 @@ def display_stock(ticker: str, ticker_cls=None, ticker_client=None):
         metrics = compute_metrics(ticker, sections)
         warnings = ensure_data_available(ticker, core_sections, metrics)
     except ValueError as exc:  # noqa: BLE001
-        warning_message = str(exc)
-        if not error_info:
+        fallback_message = (
+            "No response returned from Yahoo Finance. This may indicate a "
+            "temporary data-source outage or rate limit."
+        )
+        warning_message = _format_error_details(error_info) or str(exc)
+        if not error_info and fallback_message not in warning_message:
             warning_message = (
-                "No response returned from Yahoo Finance. This may indicate a "
-                "temporary data-source outage or rate limit."
+                f"{warning_message}. {fallback_message}" if warning_message else fallback_message
             )
         st.warning(warning_message)
+        _render_error_diagnostics(ticker, error_info)
         raise ValueError(
             f"No data available for {ticker} (reason: {warning_message})"
         ) from exc

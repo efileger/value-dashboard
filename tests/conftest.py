@@ -20,7 +20,14 @@ def clear_caches():
 def streamlit_spy(monkeypatch):
     """Capture dataframe renders while stubbing out other Streamlit calls."""
 
-    captured: dict[str, object] = {"warnings": [], "info": [], "toasts": [], "captions": []}
+    captured: dict[str, object] = {
+        "warnings": [],
+        "info": [],
+        "toasts": [],
+        "captions": [],
+        "expanders": [],
+        "json_calls": [],
+    }
     data_access.RATE_LIMIT_COOLDOWNS.clear()
 
     def noop(*args, **kwargs):
@@ -42,6 +49,25 @@ def streamlit_spy(monkeypatch):
         captured["captions"].append(message)
         return None
 
+    def capture_json(payload, *args, **kwargs):
+        captured["json_calls"].append(payload)
+        return None
+
+    def capture_expander(label, *args, **kwargs):
+        captured["expanders"].append(label)
+
+        class DummyExpander:
+            def __enter__(self_non):
+                return self_non
+
+            def __exit__(self_non, exc_type, exc, tb):
+                return False
+
+            def json(self_non, payload, **kwargs):
+                captured["json_calls"].append(payload)
+
+        return DummyExpander()
+
     def capture_toast(message, *args, **kwargs):
         captured["toasts"].append(message)
         return None
@@ -53,6 +79,8 @@ def streamlit_spy(monkeypatch):
     monkeypatch.setattr(ui.st, "info", capture_info)
     monkeypatch.setattr(ui.st, "toast", capture_toast)
     monkeypatch.setattr(ui.st, "caption", capture_caption)
+    monkeypatch.setattr(ui.st, "json", capture_json)
+    monkeypatch.setattr(ui.st, "expander", capture_expander)
 
     return captured
 
@@ -63,8 +91,17 @@ def stubbed_streamlit(monkeypatch):
 
     data_access.RATE_LIMIT_COOLDOWNS.clear()
 
-    for func in ["subheader", "markdown", "dataframe", "error", "warning", "info", "toast", "caption"]:
+    for func in ["subheader", "markdown", "dataframe", "error", "warning", "info", "toast", "caption", "json"]:
         monkeypatch.setattr(ui.st, func, lambda *args, **kwargs: None)
+
+    class DummyExpander:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(ui.st, "expander", lambda *args, **kwargs: DummyExpander())
 
 
 @pytest.fixture
@@ -322,7 +359,15 @@ def erroring_ticker_cls():
     class RateLimitError(Exception):
         def __init__(self, message="Rate limit exceeded", status_code=429):
             super().__init__(message)
-            self.response = type("Response", (), {"status_code": status_code})()
+            self.response = type(
+                "Response",
+                (),
+                {
+                    "status_code": status_code,
+                    "headers": {"Retry-After": "17"},
+                    "request": type("Req", (), {"url": "https://query2.finance.yahoo.com"})(),
+                },
+            )()
 
     class ErrorTicker:
         def __init__(self, ticker):
@@ -341,3 +386,39 @@ def erroring_ticker_cls():
             return pd.DataFrame()
 
     return ErrorTicker
+
+
+@pytest.fixture
+def http_error_ticker_cls():
+    """Ticker class fixture that simulates non-rate-limit HTTP errors."""
+
+    class HttpError(Exception):
+        def __init__(self, message="Server error", status_code=500):
+            super().__init__(message)
+            self.response = type(
+                "Response",
+                (),
+                {
+                    "status_code": status_code,
+                    "headers": {"X-Request-ID": "abc123"},
+                    "request": type("Req", (), {"url": "https://api.yahoo.test/fail"})(),
+                },
+            )()
+
+    class HttpErrorTicker:
+        def __init__(self, ticker):
+            self.ticker = ticker
+            self.financial_data = {}
+            self.asset_profile = {}
+            self.key_stats = {}
+            self.quote_type = {}
+            self.price = {}
+
+        @property
+        def summary_detail(self):
+            raise HttpError()
+
+        def history(self, period):
+            return pd.DataFrame()
+
+    return HttpErrorTicker
