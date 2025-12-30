@@ -104,5 +104,5 @@ def test_display_stock_includes_http_error_context(streamlit_spy, http_error_tic
 
     assert any("HTTP 500" in warning for warning in captured["warnings"])
     assert any("api.yahoo.test" in warning for warning in captured["warnings"])
-    assert f"Diagnostics for FAIL" in captured["expanders"]
+    assert "Diagnostics for FAIL" in captured["expanders"]
     assert captured["json_calls"], "Expected diagnostic payload to be recorded"
