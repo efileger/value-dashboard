@@ -34,6 +34,8 @@ concurrency:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    env:
+      PYTHON_VERSION: '3.11'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,20 +43,28 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements.txt
 
       - name: Install dependencies
         run: |
+          python -m venv .venv
+          source .venv/bin/activate
           python -m pip install --upgrade pip
+          pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
       - name: Lint with Ruff
         run: |
+          source .venv/bin/activate
           ruff check .
 
       - name: Run tests
         run: |
+          source .venv/bin/activate
           pytest
 
   dev-deploy:
@@ -63,6 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: dev
     env:
+      PYTHON_VERSION: '3.11'
       SMOKE_TEST: '1'
       STREAMLIT_BROWSER_GATHERUSAGESTATS: 'false'
       STREAMLIT_SERVER_HEADLESS: 'true'
@@ -73,17 +84,22 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements.txt
 
       - name: Install runtime dependencies
         run: |
+          python -m venv .venv
+          source .venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Launch Streamlit in headless mode
         run: |
-          timeout 60 streamlit run stock_dashboard.py \
+          timeout 60 .venv/bin/streamlit run stock_dashboard.py \
             --server.headless true \
             --server.address 127.0.0.1 \
             --server.port 8501 \
