@@ -52,6 +52,7 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
+          pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
       - name: Upload Python virtualenv
@@ -62,11 +63,13 @@ jobs:
 
       - name: Lint with Ruff
         run: |
-          .venv/bin/ruff check .
+          source .venv/bin/activate
+          ruff check .
 
       - name: Run tests
         run: |
-          .venv/bin/pytest
+          source .venv/bin/activate
+          pytest
 
   dev-deploy:
     name: Dev deploy smoke
