@@ -23,7 +23,7 @@ jobs:
       - name: Collect open PRs
         id: collect
         env:
-          GH_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GH_TOKEN: ${{ secrets.BOT_TOKEN || github.token }}
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.repository }}
         run: |
@@ -66,7 +66,7 @@ jobs:
       - name: Check branch lock state
         id: lock-check
         env:
-          GH_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GH_TOKEN: ${{ secrets.BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           BRANCH: ${{ matrix.pr.branch }}
         run: |
@@ -76,7 +76,7 @@ jobs:
       - name: Comment on locked branch
         if: steps.lock-check.outputs.locked == 'true'
         env:
-          GH_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GH_TOKEN: ${{ secrets.BOT_TOKEN || github.token }}
         run: |
           gh pr comment ${{ matrix.pr.number }} --body "Skipping automated rebase because the branch is manually locked."
 
@@ -84,12 +84,12 @@ jobs:
         if: steps.lock-check.outputs.locked == 'false'
         uses: peter-evans/rebase@v2
         with:
-          token: ${{ secrets.BOT_TOKEN }}
+          token: ${{ secrets.BOT_TOKEN || github.token }}
           pull-request: ${{ matrix.pr.number }}
 
       - name: Post success comment
         if: steps.lock-check.outputs.locked == 'false'
         env:
-          GH_TOKEN: ${{ secrets.BOT_TOKEN }}
+          GH_TOKEN: ${{ secrets.BOT_TOKEN || github.token }}
         run: |
           gh pr comment ${{ matrix.pr.number }} --body "Automated rebase from \`main\` completed successfully on $(date -u +'%Y-%m-%dT%H:%M:%SZ')."
