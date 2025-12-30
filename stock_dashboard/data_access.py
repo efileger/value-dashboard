@@ -544,6 +544,10 @@ def fetch_ticker_sections(
 
         host = _extract_host(response)
         retry_after = _parse_retry_after(headers, payload)
+        if host:
+            details["host"] = host
+        if retry_after:
+            details["retry_after"] = retry_after
         if status_code in {429, 503} or retry_after:
             rate_limit_error = RateLimitError(
                 status_code=status_code,
