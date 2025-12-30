@@ -1,3 +1,13 @@
+[project]
+name = "value-dashboard"
+version = "0.0.0"
+description = "Value investing dashboard"
+readme = "README.md"
+requires-python = ">=3.9"
+
+[project.scripts]
+stock-dashboard = "stock_dashboard.cli:main"
+
 [tool.ruff]
 target-version = "py39"
 line-length = 100

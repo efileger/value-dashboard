@@ -49,6 +49,8 @@ streamlit run stock_dashboard.py
 - Install dev tools: `pip install -r requirements-dev.txt`
 - Run linting: `ruff check .`
 - Run tests: `pytest`
+- Run the CLI headlessly (no Streamlit UI): `python -m stock_dashboard.cli --tickers AAPL,MSFT --verbose`
+- Deterministic CI/smoke runs: set `SMOKE_TEST=1` to use stubbed data and `YF_DISABLE_CACHE=1` to disable caching, e.g. `SMOKE_TEST=1 YF_DISABLE_CACHE=1 python -m stock_dashboard.cli --tickers AAPL`
 
 ---
 
