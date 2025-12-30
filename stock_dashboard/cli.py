@@ -8,6 +8,8 @@ import sys
 from typing import Iterable, Sequence
 
 from . import data_access, metrics
+from .logging import configure_logging
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -24,11 +26,6 @@ def _normalized_sections(
     sections: dict[str, dict[str, object]]
 ) -> dict[str, dict[str, object]]:
     return {k: v for k, v in sections.items() if k not in _DEF_EXCLUDED_SECTION_KEYS}
-
-
-def _configure_logging(verbose: bool) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(level=level, format="[%(levelname)s] %(message)s")
 
 
 def _process_ticker(ticker: str, ticker_client: object | None = None) -> bool:
@@ -97,7 +94,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    _configure_logging(args.verbose)
+    configure_logging(logging.DEBUG if args.verbose else None)
     exit_code = run(args.tickers)
     sys.exit(exit_code)
 

@@ -1,7 +1,10 @@
+import logging
+
 import pandas as pd
 import streamlit as st
 
 from . import data_access
+from .logging import configure_logging
 from .metrics import (
     compute_metrics,
     ensure_data_available,
@@ -187,6 +190,8 @@ def display_stock(ticker: str, ticker_cls=None, ticker_client=None):
 
 
 def main():
+    configure_logging()
+    logging.getLogger(__name__).info("Initializing Streamlit dashboard")
     st.set_page_config(page_title="Value Investing Dashboard", layout="wide")
     st.title("📊 Value Investing Dashboard")
 
