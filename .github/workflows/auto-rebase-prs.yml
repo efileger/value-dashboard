@@ -1,0 +1,95 @@
+name: Auto rebase open PRs
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  discover:
+    name: Discover open PRs
+    runs-on: ubuntu-latest
+    outputs:
+      prs: ${{ steps.collect.outputs.prs }}
+      has-prs: ${{ steps.collect.outputs.has-prs }}
+    steps:
+      - name: Collect open PRs
+        id: collect
+        env:
+          GH_TOKEN: ${{ secrets.BOT_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+        run: |
+          prs=$(gh pr list --state open --json number,headRefName,headRepositoryOwner --jq \
+            '[.[] | select(.headRepositoryOwner.login == env.OWNER) | {number: .number, branch: .headRefName}]')
+
+          if [ -z "$prs" ]; then
+            prs='[]'
+          fi
+
+          echo "prs=${prs}" >> "$GITHUB_OUTPUT"
+
+          if [ "$prs" = '[]' ]; then
+            echo "has-prs=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-prs=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  rebase:
+    name: Rebase ${{ matrix.pr.number }}
+    needs: discover
+    if: needs.discover.outputs.has-prs == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pr: ${{ fromJson(needs.discover.outputs.prs) }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Ensure git is configured
+        run: |
+          git config user.name "automation-bot"
+          git config user.email "automation@example.com"
+
+      - name: Check branch lock state
+        id: lock-check
+        env:
+          GH_TOKEN: ${{ secrets.BOT_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ matrix.pr.branch }}
+        run: |
+          locked=$(gh api "repos/${REPO}/branches/${BRANCH}" --jq '.protection.locked // false')
+          echo "locked=${locked}" >> "$GITHUB_OUTPUT"
+
+      - name: Comment on locked branch
+        if: steps.lock-check.outputs.locked == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: |
+          gh pr comment ${{ matrix.pr.number }} --body "Skipping automated rebase because the branch is manually locked."
+
+      - name: Rebase PR branch onto main
+        if: steps.lock-check.outputs.locked == 'false'
+        uses: peter-evans/rebase@v2
+        with:
+          token: ${{ secrets.BOT_TOKEN }}
+          pull-request: ${{ matrix.pr.number }}
+
+      - name: Post success comment
+        if: steps.lock-check.outputs.locked == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: |
+          gh pr comment ${{ matrix.pr.number }} --body "Automated rebase from \`main\` completed successfully on $(date -u +'%Y-%m-%dT%H:%M:%SZ')."
