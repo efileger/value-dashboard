@@ -34,6 +34,8 @@ concurrency:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    env:
+      PYTHON_VERSION: '3.11'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,7 +43,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
           cache-dependency-path: |
             requirements-dev.txt
@@ -58,8 +60,9 @@ jobs:
       - name: Upload Python virtualenv
         uses: actions/upload-artifact@v4
         with:
-          name: python-venv-${{ runner.os }}-py311
+          name: python-venv-${{ runner.os }}-py${{ env.PYTHON_VERSION }}
           path: .venv
+          retention-days: 1
 
       - name: Lint with Ruff
         run: |
@@ -77,6 +80,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: dev
     env:
+      PYTHON_VERSION: '3.11'
       SMOKE_TEST: '1'
       STREAMLIT_BROWSER_GATHERUSAGESTATS: 'false'
       STREAMLIT_SERVER_HEADLESS: 'true'
@@ -87,7 +91,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
           cache-dependency-path: |
             requirements-dev.txt
@@ -96,7 +100,7 @@ jobs:
       - name: Download Python virtualenv
         uses: actions/download-artifact@v4
         with:
-          name: python-venv-${{ runner.os }}-py311
+          name: python-venv-${{ runner.os }}-py${{ env.PYTHON_VERSION }}
           path: .
 
       - name: Ensure virtualenv has executable permissions
