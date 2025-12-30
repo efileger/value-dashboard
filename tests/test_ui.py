@@ -81,7 +81,7 @@ def test_display_stock_surfaces_rate_limit_details(streamlit_spy, erroring_ticke
 
     assert any("HTTP 429" in message for message in captured["info"])
     assert any("query2.finance.yahoo.com" in message for message in captured["info"])
-    assert f"Diagnostics for ERR" in captured["expanders"]
+    assert "Diagnostics for ERR" in captured["expanders"]
     assert captured["json_calls"], "Expected diagnostic payload to be recorded"
 
 
