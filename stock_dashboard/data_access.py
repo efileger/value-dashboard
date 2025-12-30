@@ -298,7 +298,7 @@ def _parse_retry_after(headers: Mapping[str, Any], payload: Any = None) -> int |
     return None
 
 
-def _record_rate_limit(rate_limit_error: RateLimitError) -> None:
+def _record_rate_limit(rate_limit_error: RateLimitError, ticker: str | None = None) -> None:
     retry_after = rate_limit_error.retry_after or _DEFAULT_RATE_LIMIT_SECONDS
     host = rate_limit_error.host or "yahoo_finance"
     resume_at = _utcnow() + timedelta(seconds=retry_after)
@@ -306,6 +306,13 @@ def _record_rate_limit(rate_limit_error: RateLimitError) -> None:
     rate_limit_error.remaining = retry_after
     logger.info(
         "Rate limit detected for host %s; retry after %ss", host, retry_after
+    )
+    logger.error(
+        "Rate limit recorded for %s: status_code=%s host=%s retry_after=%s",
+        ticker or "unknown",
+        rate_limit_error.status_code,
+        host,
+        retry_after,
     )
 
 
@@ -381,10 +388,7 @@ def fetch_ticker_sections(
 ) -> dict[str, Mapping[str, Any]]:
     """Load all ticker sections used by the dashboard with caching and jitter."""
 
-    cached_sections: dict[str, Mapping[str, Any]] = {}
-    cache_hits: set[str] = set()
-
-    for section_name in (
+    requested_sections = (
         "summary_detail",
         "financial_data",
         "asset_profile",
@@ -392,14 +396,25 @@ def fetch_ticker_sections(
         "quote_type",
         "price",
         "buybacks",
-    ):
+    )
+    cached_sections: dict[str, Mapping[str, Any]] = {}
+    cache_hits: set[str] = set()
+
+    for section_name in requested_sections:
         cached_section = _get_cached_section(ticker, section_name)
         if cached_section is not None:
             cached_sections[section_name] = cached_section
             cache_hits.add(section_name)
 
+    logger.info(
+        "Starting fetch for %s; sections=%s; cache_hits=%s",
+        ticker,
+        requested_sections,
+        sorted(cache_hits),
+    )
+
     if is_smoke_mode():
-        return {
+        result = {
             "summary_detail": cached_sections.get(
                 "summary_detail",
                 {
@@ -452,22 +467,35 @@ def fetch_ticker_sections(
             "cache_info": {"sections_cached": sorted(cache_hits)},
         }
 
+        logger.info(
+            "Finished fetch for %s; sections=%s; cache_hits=%s; network_called=%s",
+            ticker,
+            requested_sections,
+            sorted(cache_hits),
+            False,
+        )
+
+        return result
+
     missing_sections = [
         section
-        for section in (
-            "summary_detail",
-            "financial_data",
-            "asset_profile",
-            "key_stats",
-            "quote_type",
-            "price",
-        )
+        for section in requested_sections
         if section not in cached_sections
     ]
 
+    core_section_names = [
+        "summary_detail",
+        "financial_data",
+        "asset_profile",
+        "key_stats",
+        "quote_type",
+        "price",
+    ]
+    missing_sections = [section for section in core_section_names if section in missing_sections]
+
     active_limit = _active_rate_limit()
     if active_limit and missing_sections:
-        return {
+        result = {
             "summary_detail": cached_sections.get("summary_detail", {}),
             "financial_data": cached_sections.get("financial_data", {}),
             "asset_profile": cached_sections.get("asset_profile", {}),
@@ -481,6 +509,16 @@ def fetch_ticker_sections(
                 "served_from_cache": bool(cache_hits and not missing_sections),
             },
         }
+
+        logger.info(
+            "Finished fetch for %s; sections=%s; cache_hits=%s; network_called=%s",
+            ticker,
+            requested_sections,
+            sorted(cache_hits),
+            False,
+        )
+
+        return result
 
     def _capture_error_details(exc: Exception) -> dict[str, Any]:
         details: dict[str, Any] = {"message": str(exc)}
@@ -518,6 +556,14 @@ def fetch_ticker_sections(
             )
             details["rate_limit"] = rate_limit_error
 
+        logger.error(
+            "Error while fetching %s: status_code=%s host=%s retry_after=%s",
+            ticker,
+            status_code,
+            host,
+            retry_after,
+        )
+
         return details
 
     def _fetch_section(client: Any, attr_name: str) -> tuple[Mapping[str, Any], dict[str, Any]]:
@@ -534,6 +580,7 @@ def fetch_ticker_sections(
     error_info: dict[str, Any] = {}
 
     needs_network = missing_sections or "buybacks" not in sections
+    network_called = bool(needs_network)
     client_to_use = ticker_client
 
     if needs_network:
@@ -543,7 +590,14 @@ def fetch_ticker_sections(
         except Exception as exc:  # noqa: BLE001
             error_details = _capture_error_details(exc)
             if rate_limit := error_details.get("rate_limit"):
-                _record_rate_limit(rate_limit)
+                _record_rate_limit(rate_limit, ticker)
+            logger.info(
+                "Finished fetch for %s; sections=%s; cache_hits=%s; network_called=%s",
+                ticker,
+                requested_sections,
+                sorted(cache_hits),
+                network_called,
+            )
             return {
                 "summary_detail": sections.get("summary_detail", {}),
                 "financial_data": sections.get("financial_data", {}),
@@ -578,7 +632,7 @@ def fetch_ticker_sections(
             error_info = section_error
 
     if rate_limit := error_info.get("rate_limit"):
-        _record_rate_limit(rate_limit)
+        _record_rate_limit(rate_limit, ticker)
 
     if "buybacks" not in sections:
         buybacks = _detect_buybacks(client_to_use, sections.get("key_stats", {}))
@@ -598,6 +652,14 @@ def fetch_ticker_sections(
         "served_from_cache": served_from_cache,
         "cache_disabled": not _cache_enabled(),
     }
+
+    logger.info(
+        "Finished fetch for %s; sections=%s; cache_hits=%s; network_called=%s",
+        ticker,
+        requested_sections,
+        sorted(cache_hits),
+        not served_from_cache,
+    )
 
     return {
         **sections,
