@@ -43,19 +43,30 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements.txt
 
       - name: Install dependencies
         run: |
+          python -m venv .venv
+          source .venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      - name: Upload Python virtualenv
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-venv-${{ runner.os }}-py311
+          path: .venv
+
       - name: Lint with Ruff
         run: |
-          ruff check .
+          .venv/bin/ruff check .
 
       - name: Run tests
         run: |
-          pytest
+          .venv/bin/pytest
 
   dev-deploy:
     name: Dev deploy smoke
@@ -75,15 +86,28 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements.txt
+
+      - name: Download Python virtualenv
+        uses: actions/download-artifact@v4
+        with:
+          name: python-venv-${{ runner.os }}-py311
+          path: .
+
+      - name: Ensure virtualenv has executable permissions
+        run: chmod +x .venv/bin/*
 
       - name: Install runtime dependencies
         run: |
+          source .venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Launch Streamlit in headless mode
         run: |
-          timeout 60 streamlit run stock_dashboard.py \
+          timeout 60 .venv/bin/streamlit run stock_dashboard.py \
             --server.headless true \
             --server.address 127.0.0.1 \
             --server.port 8501 \
