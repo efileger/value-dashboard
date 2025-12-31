@@ -16,6 +16,105 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  dependency-audit:
+    name: Dependency security audit
+    runs-on: ubuntu-latest
+    env:
+      PYTHON_VERSION: '3.11'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pip-audit
+
+      - name: Run pip-audit
+        id: pip-audit
+        continue-on-error: true
+        run: |
+          source .venv/bin/activate
+          pip-audit --progress-spinner=off \
+            --requirement requirements.txt \
+            --output pip-audit.json \
+            --format json
+
+      - name: Upload pip-audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-report
+          path: pip-audit.json
+
+      - name: Fail on detected vulnerabilities
+        if: steps.pip-audit.outcome == 'failure'
+        run: |
+          echo "pip-audit detected vulnerable dependencies. See pip-audit.json artifact for details." >&2
+          exit 1
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    permissions:
+      contents: read
+      pull-requests: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Gitleaks
+        run: |
+          set -euo pipefail
+          VERSION="8.24.3"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" | tar -xz
+          sudo mv gitleaks /usr/local/bin/gitleaks
+
+      - name: Run Gitleaks (SARIF)
+        run: |
+          set -euo pipefail
+          gitleaks detect --source . --report-format sarif --report-path gitleaks.sarif --redact --exit-code=0
+
+      - name: Verify SARIF report exists
+        run: |
+          if [ ! -f gitleaks.sarif ]; then
+            echo "Gitleaks did not produce a SARIF report."
+            exit 1
+          fi
+
+      - name: Upload SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gitleaks.sarif
+
+      - name: Upload scan report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks.sarif
+
+      - name: Enforce secret scan gate
+        run: |
+          set -euo pipefail
+          gitleaks detect --source . --redact
+
   lint-and-test:
     runs-on: ubuntu-latest
     env:
@@ -55,6 +154,9 @@ jobs:
     name: Dev deploy smoke
     needs: lint-and-test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
     environment: dev
     env:
       PYTHON_VERSION: '3.11'
@@ -62,7 +164,14 @@ jobs:
       STREAMLIT_BROWSER_GATHERUSAGESTATS: 'false'
       STREAMLIT_SERVER_HEADLESS: 'true'
     steps:
-      - name: Checkout
+      - name: Checkout (PR merge commit)
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+
+      - name: Checkout (default)
+        if: github.event_name != 'pull_request'
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -180,3 +289,24 @@ jobs:
         with:
           name: streamlit-dev-logs
           path: /tmp/streamlit.log
+
+      - name: Mark dev deployment inactive
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          deployments=$(gh api repos/${REPO}/deployments --paginate --jq '.[] | select(.environment=="dev" and .sha=="'"${SHA}"'") | .id')
+
+          if [ -z "${deployments}" ]; then
+            echo "No dev deployments found for this SHA to mark inactive."
+            exit 0
+          fi
+
+          for deployment_id in ${deployments}; do
+            echo "Marking deployment ${deployment_id} as inactive"
+            gh api repos/${REPO}/deployments/${deployment_id}/statuses -f state=inactive >/dev/null
+          done
