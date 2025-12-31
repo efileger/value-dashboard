@@ -52,6 +52,19 @@ jobs:
         with:
           args: detect --source . --report-format sarif --report-path gitleaks.sarif --redact --exit-code=0
 
+      - name: Ensure SARIF report exists
+        run: |
+          if [ ! -f gitleaks.sarif ]; then
+            echo "Gitleaks did not produce a SARIF report; creating an empty placeholder for upload."
+            cat > gitleaks.sarif <<'EOF'
+            {
+              "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+              "version": "2.1.0",
+              "runs": []
+            }
+EOF
+          fi
+
       - name: Upload SARIF to code scanning
         uses: github/codeql-action/upload-sarif@v3
         with:
