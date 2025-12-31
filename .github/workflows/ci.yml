@@ -52,17 +52,11 @@ jobs:
         with:
           scan_args: detect --source . --report-format sarif --report-path gitleaks.sarif --redact --exit-code=0
 
-      - name: Ensure SARIF report exists
+      - name: Verify SARIF report exists
         run: |
           if [ ! -f gitleaks.sarif ]; then
-            echo "Gitleaks did not produce a SARIF report; creating an empty placeholder for upload."
-            cat > gitleaks.sarif <<'EOF'
-            {
-              "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
-              "version": "2.1.0",
-              "runs": []
-            }
-EOF
+            echo "Gitleaks did not produce a SARIF report."
+            exit 1
           fi
 
       - name: Upload SARIF to code scanning
