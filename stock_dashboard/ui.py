@@ -315,7 +315,7 @@ def main():
         with selection_tab:
             col_select, col_actions = st.columns([1.5, 1], gap="medium")
             with col_select:
-                st.session_state.chip_select = st.multiselect(
+                st.multiselect(
                     "Quick select (recent & defaults):",
                     all_options,
                     default=st.session_state.watchlist,

@@ -6,25 +6,9 @@ on:
       - "main"
     tags:
       - "v*"
-    paths:
-      - "stock_dashboard/**"
-      - "stock_dashboard.py"
-      - "tests/**"
-      - "requirements*.txt"
-      - "pyproject.toml"
-      - ".github/workflows/**"
-      - "watchlist.txt"
   pull_request:
     branches:
       - "**"
-    paths:
-      - "stock_dashboard/**"
-      - "stock_dashboard.py"
-      - "tests/**"
-      - "requirements*.txt"
-      - "pyproject.toml"
-      - ".github/workflows/**"
-      - "watchlist.txt"
   workflow_dispatch:
 
 concurrency:
