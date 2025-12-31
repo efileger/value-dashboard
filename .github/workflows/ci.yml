@@ -32,6 +32,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  dependency-audit:
+    name: Dependency security audit
+    runs-on: ubuntu-latest
+    env:
+      PYTHON_VERSION: '3.11'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pip-audit
+
+      - name: Run pip-audit
+        id: pip-audit
+        continue-on-error: true
+        run: |
+          source .venv/bin/activate
+          pip-audit --progress-spinner=off \
+            --requirement requirements.txt \
+            --output pip-audit.json \
+            --format json
+
+      - name: Upload pip-audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-report
+          path: pip-audit.json
+
+      - name: Fail on detected vulnerabilities
+        if: steps.pip-audit.outcome == 'failure'
+        run: |
+          echo "pip-audit detected vulnerable dependencies. See pip-audit.json artifact for details." >&2
+          exit 1
   secret-scan:
     name: Secret scan
     runs-on: ubuntu-latest
