@@ -170,6 +170,9 @@ jobs:
     name: Dev deploy smoke
     needs: lint-and-test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
     environment: dev
     env:
       PYTHON_VERSION: '3.11'
