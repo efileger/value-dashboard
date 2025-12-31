@@ -50,7 +50,7 @@ jobs:
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
         with:
-          args: detect --source . --report-format sarif --report-path gitleaks.sarif --redact --exit-code=0
+          scan_args: detect --source . --report-format sarif --report-path gitleaks.sarif --redact --exit-code=0
 
       - name: Ensure SARIF report exists
         run: |
@@ -62,7 +62,7 @@ jobs:
               "version": "2.1.0",
               "runs": []
             }
-            EOF
+EOF
           fi
 
       - name: Upload SARIF to code scanning
@@ -80,7 +80,7 @@ jobs:
       - name: Enforce secret scan gate
         uses: gitleaks/gitleaks-action@v2
         with:
-          args: detect --source . --redact
+          scan_args: detect --source . --redact
 
   lint-and-test:
     runs-on: ubuntu-latest
