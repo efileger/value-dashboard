@@ -262,6 +262,32 @@ def main():
     st.title("📊 Value Investing Dashboard")
 
     default_watchlist = data_access.get_default_watchlist_string()
+    default_ticker_list = [
+        ticker.strip().upper() for ticker in default_watchlist.split(",") if ticker.strip()
+    ]
+    validated_defaults = data_access.validate_tickers(default_ticker_list)
+
+    if "watchlist" not in st.session_state:
+        st.session_state.watchlist = validated_defaults.copy()
+    if "recent_tickers" not in st.session_state:
+        st.session_state.recent_tickers = validated_defaults.copy()
+    if "chip_select" not in st.session_state:
+        st.session_state.chip_select = validated_defaults.copy()
+
+    st.markdown(
+        """
+        <style>
+        .pill-row {gap: 0.5rem; margin-bottom: 0.5rem;}
+        .watchlist-form .stButton>button {border-radius: 999px; padding: 0.4rem 1.1rem;}
+        .watchlist-form .stButton>button[aria-pressed="false"] {background-color: #f8f9fb;}
+        .watchlist-form .stMultiSelect > div {border-radius: 999px;}
+        .watchlist-form .stTabs [data-baseweb="tab-list"] {gap: 0.25rem;}
+        .watchlist-form .stTabs [data-baseweb="tab"] {border-radius: 999px; padding: 0.3rem 0.9rem;}
+        .watchlist-form .stTextInput>div>div>input {letter-spacing: 0.02em;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if data_access.is_smoke_mode():
         st.info(
@@ -273,12 +299,109 @@ def main():
         )
 
     st.markdown(f"Default watchlist: `{default_watchlist}`")
-    ticker_input = st.text_input(
-        "Enter comma-separated stock tickers (e.g. AAPL,MSFT,META):",
-        default_watchlist,
-    )
-    raw_tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
-    tickers = data_access.validate_tickers(raw_tickers)
+    st.markdown('<div class="watchlist-form">', unsafe_allow_html=True)
+    with st.form("watchlist_form", border=True, enter_to_submit=False):
+        st.markdown("#### Watchlist Builder", help="Curate tickers before loading data")
+        selection_tab, table_tab = st.tabs(["Select", "Table"])
+
+        all_options = sorted(
+            dict.fromkeys(
+                st.session_state.recent_tickers
+                + validated_defaults
+                + st.session_state.watchlist
+            )
+        )
+
+        with selection_tab:
+            col_select, col_actions = st.columns([1.5, 1], gap="medium")
+            with col_select:
+                st.session_state.chip_select = st.multiselect(
+                    "Quick select (recent & defaults):",
+                    all_options,
+                    default=st.session_state.watchlist,
+                    key="chip_select",
+                    placeholder="Tap to pick tickers",
+                )
+
+            with col_actions:
+                add_value = st.text_input(
+                    "Add Ticker",
+                    key="add_ticker_input",
+                    placeholder="e.g. NVDA",
+                    help="Validated against Yahoo Finance symbols",
+                ).strip().upper()
+                validated_add = (
+                    data_access.validate_tickers([add_value]) if add_value else []
+                )
+                if add_value:
+                    if validated_add:
+                        st.caption("✅ Looks valid")
+                    else:
+                        st.caption("❌ Ticker not recognized")
+
+                add_clicked = st.form_submit_button(
+                    "Add to watchlist",
+                    use_container_width=True,
+                    type="primary",
+                    disabled=bool(add_value) and not validated_add,
+                )
+                remove_clicked = st.form_submit_button(
+                    "Remove selected",
+                    use_container_width=True,
+                    help="Drop currently selected tickers",
+                )
+
+        with table_tab:
+            watchlist_df = pd.DataFrame(
+                {
+                    "Ticker": st.session_state.watchlist,
+                    "Delete": [False] * len(st.session_state.watchlist),
+                }
+            )
+            edited_table = st.data_editor(
+                watchlist_df,
+                hide_index=True,
+                key="watchlist_editor",
+                column_config={
+                    "Delete": st.column_config.CheckboxColumn(
+                        "Delete", help="Remove this ticker from the watchlist"
+                    )
+                },
+                disabled=["Ticker"],
+            )
+
+        apply_clicked = st.form_submit_button(
+            "Apply watchlist", use_container_width=True, type="primary"
+        )
+
+        new_watchlist = list(dict.fromkeys(st.session_state.chip_select or []))
+
+        if add_clicked and validated_add:
+            for ticker in validated_add:
+                if ticker not in new_watchlist:
+                    new_watchlist.append(ticker)
+            st.session_state.recent_tickers = list(
+                dict.fromkeys(validated_add + st.session_state.recent_tickers)
+            )
+
+        if remove_clicked and st.session_state.chip_select:
+            selected_set = set(st.session_state.chip_select)
+            new_watchlist = [t for t in new_watchlist if t not in selected_set]
+
+        if not edited_table.empty:
+            new_watchlist = [
+                row.Ticker for row in edited_table.itertuples(index=False)
+                if not row.Delete and row.Ticker
+            ]
+
+        st.session_state.watchlist = list(dict.fromkeys(new_watchlist))
+
+        if apply_clicked or add_clicked or remove_clicked:
+            st.caption("Watchlist updated")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    tickers = data_access.validate_tickers(st.session_state.watchlist)
     batched_client = data_access.get_batched_ticker_client(tickers)
 
     for ticker in tickers:
