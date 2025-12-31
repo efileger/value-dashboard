@@ -247,3 +247,24 @@ jobs:
         with:
           name: streamlit-dev-logs
           path: /tmp/streamlit.log
+
+      - name: Mark dev deployment inactive
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          deployments=$(gh api repos/${REPO}/deployments --paginate --jq '.[] | select(.environment=="dev" and .sha=="'"${SHA}"'") | .id')
+
+          if [ -z "${deployments}" ]; then
+            echo "No dev deployments found for this SHA to mark inactive."
+            exit 0
+          fi
+
+          for deployment_id in ${deployments}; do
+            echo "Marking deployment ${deployment_id} as inactive"
+            gh api repos/${REPO}/deployments/${deployment_id}/statuses -f state=inactive >/dev/null
+          done
