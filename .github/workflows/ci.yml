@@ -80,6 +80,56 @@ jobs:
         run: |
           echo "pip-audit detected vulnerable dependencies. See pip-audit.json artifact for details." >&2
           exit 1
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    permissions:
+      contents: read
+      pull-requests: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Gitleaks
+        run: |
+          set -euo pipefail
+          VERSION="8.24.3"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" | tar -xz
+          sudo mv gitleaks /usr/local/bin/gitleaks
+
+      - name: Run Gitleaks (SARIF)
+        run: |
+          set -euo pipefail
+          gitleaks detect --source . --report-format sarif --report-path gitleaks.sarif --redact --exit-code=0
+
+      - name: Verify SARIF report exists
+        run: |
+          if [ ! -f gitleaks.sarif ]; then
+            echo "Gitleaks did not produce a SARIF report."
+            exit 1
+          fi
+
+      - name: Upload SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gitleaks.sarif
+
+      - name: Upload scan report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks.sarif
+
+      - name: Enforce secret scan gate
+        run: |
+          set -euo pipefail
+          gitleaks detect --source . --redact
 
   lint-and-test:
     runs-on: ubuntu-latest
@@ -127,7 +177,14 @@ jobs:
       STREAMLIT_BROWSER_GATHERUSAGESTATS: 'false'
       STREAMLIT_SERVER_HEADLESS: 'true'
     steps:
-      - name: Checkout
+      - name: Checkout (PR merge commit)
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+
+      - name: Checkout (default)
+        if: github.event_name != 'pull_request'
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -245,3 +302,24 @@ jobs:
         with:
           name: streamlit-dev-logs
           path: /tmp/streamlit.log
+
+      - name: Mark dev deployment inactive
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          deployments=$(gh api repos/${REPO}/deployments --paginate --jq '.[] | select(.environment=="dev" and .sha=="'"${SHA}"'") | .id')
+
+          if [ -z "${deployments}" ]; then
+            echo "No dev deployments found for this SHA to mark inactive."
+            exit 0
+          fi
+
+          for deployment_id in ${deployments}; do
+            echo "Marking deployment ${deployment_id} as inactive"
+            gh api repos/${REPO}/deployments/${deployment_id}/statuses -f state=inactive >/dev/null
+          done
