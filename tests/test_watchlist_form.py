@@ -15,6 +15,10 @@ class _DummyContext:
 
 
 class _SessionState(dict):
+    def __init__(self):
+        super().__init__()
+        self._locked_keys: set[str] = set()
+
     def __getattr__(self, item):
         try:
             return self[item]
@@ -23,6 +27,16 @@ class _SessionState(dict):
 
     def __setattr__(self, key, value):
         self[key] = value
+
+    def __setitem__(self, key, value):
+        if key in getattr(self, "_locked_keys", set()):
+            raise RuntimeError(
+                f"Cannot assign to session_state['{key}'] after widget initialization"
+            )
+        super().__setitem__(key, value)
+
+    def lock_key(self, key: str) -> None:
+        self._locked_keys.add(key)
 
 
 class _FakeStreamlit:
@@ -73,7 +87,12 @@ class _FakeStreamlit:
         return tuple(_DummyContext() for _ in range(len(spec)))
 
     def multiselect(self, *_args, default=None, **__):
-        return self.multiselect_value if self.multiselect_value is not None else default
+        value = self.multiselect_value if self.multiselect_value is not None else default
+        key = __.get("key")
+        if key:
+            dict.__setitem__(self.session_state, key, value)
+            self.session_state.lock_key(key)
+        return value
 
     def text_input(self, *_, key: str, **__):
         return self.text_inputs.get(key, "")
@@ -196,6 +215,32 @@ def test_watchlist_form_removes_tickers(monkeypatch):
 
     assert any(call for call in validate_calls if "MSFT" in call)
     assert displayed == ["AAPL"]
+
+
+def test_watchlist_respects_session_state_lock(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.multiselect_value = ["TSLA", "NVDA"]
+    fake_st.submit_map = {
+        "Add to watchlist": False,
+        "Remove selected": False,
+        "Apply watchlist": True,
+    }
+    fake_st.data_editor_value = pd.DataFrame(
+        {"Ticker": ["TSLA", "NVDA"], "Delete": [False, False]}
+    )
+
+    _install_fake_streamlit(monkeypatch, fake_st)
+    _stub_defaults(monkeypatch)
+
+    monkeypatch.setattr(data_access, "validate_tickers", lambda tickers, ticker_cls=None: tickers)
+    monkeypatch.setattr(data_access, "get_batched_ticker_client", lambda *_, **__: None)
+
+    displayed: list[str] = []
+    monkeypatch.setattr(ui, "display_stock", lambda ticker, ticker_client=None: displayed.append(ticker))
+
+    ui.main()
+
+    assert displayed == ["TSLA", "NVDA"]
 
 
 def test_watchlist_form_smoke_mode_renders(monkeypatch):
