@@ -129,7 +129,14 @@ jobs:
       STREAMLIT_BROWSER_GATHERUSAGESTATS: 'false'
       STREAMLIT_SERVER_HEADLESS: 'true'
     steps:
-      - name: Checkout
+      - name: Checkout (PR merge commit)
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+
+      - name: Checkout (default)
+        if: github.event_name != 'pull_request'
         uses: actions/checkout@v4
 
       - name: Set up Python
