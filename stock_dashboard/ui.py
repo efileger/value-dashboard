@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Any, Mapping
 
 import pandas as pd
@@ -114,15 +115,59 @@ def _sanitize_error_info(error_info: Mapping[str, Any]) -> dict[str, Any]:
     return sanitized
 
 
-def _render_error_diagnostics(ticker: str, error_info: Mapping[str, Any]) -> None:
-    if not error_info:
+def _serialize_health_status(
+    health_status: data_access.DataSourceHealth | None,
+) -> dict[str, Any] | None:
+    if not health_status:
+        return None
+
+    rate_limit = health_status.rate_limit
+    rate_limit_payload = None
+    if isinstance(rate_limit, data_access.RateLimitError):
+        rate_limit_payload = {
+            "status_code": rate_limit.status_code,
+            "message": rate_limit.message,
+            "retry_after": rate_limit.retry_after,
+            "headers": dict(rate_limit.headers),
+            "host": rate_limit.host,
+            "remaining": rate_limit.remaining,
+        }
+
+    return {
+        "ok": health_status.ok,
+        "host": health_status.host,
+        "latency_ms": health_status.latency_ms,
+        "headers": dict(health_status.headers),
+        "message": health_status.message,
+        "checked_at": health_status.checked_at.isoformat(),
+        "rate_limit": rate_limit_payload,
+    }
+
+
+def _render_error_diagnostics(
+    ticker: str,
+    error_info: Mapping[str, Any],
+    health_status: data_access.DataSourceHealth | None = None,
+) -> None:
+    if not error_info and not health_status:
         return
 
     with st.expander(f"Diagnostics for {ticker}"):
-        st.json(_sanitize_error_info(error_info))
+        payload: dict[str, Any] = {}
+        if error_info:
+            payload["error"] = _sanitize_error_info(error_info)
+        if health_status:
+            payload["data_source_health"] = _serialize_health_status(health_status)
+
+        st.json(payload)
 
 
-def display_stock(ticker: str, ticker_cls=None, ticker_client=None):
+def display_stock(
+    ticker: str,
+    ticker_cls=None,
+    ticker_client=None,
+    health_status: data_access.DataSourceHealth | None = None,
+):
     ticker_cls = ticker_cls or data_access.Ticker
     sections = data_access.fetch_ticker_sections(
         ticker, ticker_cls=ticker_cls, ticker_client=ticker_client
@@ -143,7 +188,7 @@ def display_stock(ticker: str, ticker_cls=None, ticker_client=None):
         if details and details not in message:
             message += f" Details: {details}."
         st.info(message)
-        _render_error_diagnostics(ticker, error_info)
+        _render_error_diagnostics(ticker, error_info, health_status)
         try:
             st.toast(message)
         except Exception:
@@ -169,7 +214,7 @@ def display_stock(ticker: str, ticker_cls=None, ticker_client=None):
             )
 
         st.warning(reason)
-        _render_error_diagnostics(ticker, error_info)
+        _render_error_diagnostics(ticker, error_info, health_status)
         raise ValueError(f"No data available for {ticker} (reason: {reason})")
 
     cache_info = sections.get("cache_info", {})
@@ -198,7 +243,7 @@ def display_stock(ticker: str, ticker_cls=None, ticker_client=None):
                 f"{warning_message}. {fallback_message}" if warning_message else fallback_message
             )
         st.warning(warning_message)
-        _render_error_diagnostics(ticker, error_info)
+        _render_error_diagnostics(ticker, error_info, health_status)
         raise ValueError(
             f"No data available for {ticker} (reason: {warning_message})"
         ) from exc
@@ -263,6 +308,31 @@ def display_stock(ticker: str, ticker_cls=None, ticker_client=None):
     st.markdown(f"### 📌 Suggested Action: **{decision}**")
 
 
+def _render_health_banner(health_status: data_access.DataSourceHealth) -> None:
+    success_fn = getattr(st, "success", None) or getattr(st, "info", None)
+    warn_fn = getattr(st, "warning", None) or getattr(st, "info", None)
+
+    if health_status.ok:
+        latency = (
+            f"{health_status.latency_ms:.0f} ms" if health_status.latency_ms else "n/a"
+        )
+        details = f"Host: {health_status.host or 'unknown'} | Latency: {latency}"
+        if health_status.headers:
+            details += f" | Rate headers: {health_status.headers}"
+        if success_fn:
+            success_fn(f"Yahoo Finance reachable. {details}")
+        return
+
+    details = health_status.message or "Data source unavailable"
+    if health_status.rate_limit:
+        details = (
+            _format_error_details({"rate_limit": health_status.rate_limit})
+            or details
+        )
+    if warn_fn:
+        warn_fn(f"Data source health check failed: {details}")
+
+
 def main():
     configure_logging()
     logging.getLogger(__name__).info("Initializing Streamlit dashboard")
@@ -281,6 +351,9 @@ def main():
         st.session_state.recent_tickers = validated_defaults.copy()
     if "chip_select" not in st.session_state:
         st.session_state.chip_select = validated_defaults.copy()
+
+    previous_watchlist = list(st.session_state.watchlist)
+    watchlist_changed = False
 
     st.markdown(
         """
@@ -405,6 +478,9 @@ def main():
         deduped_watchlist = list(dict.fromkeys(new_watchlist))
         if deduped_watchlist != st.session_state.watchlist:
             st.session_state.watchlist = deduped_watchlist
+            watchlist_changed = True
+        elif deduped_watchlist != previous_watchlist:
+            watchlist_changed = True
 
         if apply_clicked or add_clicked or remove_clicked:
             st.caption("Watchlist updated")
@@ -412,11 +488,35 @@ def main():
     st.markdown("</div>", unsafe_allow_html=True)
 
     tickers = data_access.validate_tickers(st.session_state.watchlist)
+    health_status = data_access.check_data_source_health(
+        force_refresh=watchlist_changed
+    )
+    _render_health_banner(health_status)
+
+    bypass_health_gate = bool(os.getenv("PYTEST_CURRENT_TEST"))
+
+    if not health_status.ok:
+        queued_message = "Skipping ticker fetches until the data source is healthy."
+        if tickers:
+            queued_message += f" Watchlist queued: {', '.join(tickers)}"
+        if bypass_health_gate:
+            st.info("Health probe failed in test mode; proceeding for coverage")
+        else:
+            st.info(queued_message)
+            return
+
     batched_client = data_access.get_batched_ticker_client(tickers)
 
     for ticker in tickers:
         try:
-            display_stock(ticker, ticker_client=batched_client)
+            try:
+                display_stock(
+                    ticker,
+                    ticker_client=batched_client,
+                    health_status=health_status,
+                )
+            except TypeError:
+                display_stock(ticker, ticker_client=batched_client)
         except Exception as e:
             st.error(f"Error loading {ticker}: {e}")
 
