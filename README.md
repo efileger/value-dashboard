@@ -52,6 +52,9 @@ streamlit run stock_dashboard.py
 - Run the CLI headlessly (no Streamlit UI): `python -m stock_dashboard.cli --tickers AAPL,MSFT --verbose`
 - Deterministic CI/smoke runs: set `SMOKE_TEST=1` to use stubbed data and `YF_DISABLE_CACHE=1` to disable caching, e.g. `SMOKE_TEST=1 YF_DISABLE_CACHE=1 python -m stock_dashboard.cli --tickers AAPL`
 
+### Operational checks
+- **Live data probe**: A dedicated GitHub Actions workflow (`Live data probe`) runs hourly and on-demand to hit Yahoo Finance via `python -m stock_dashboard.cli --tickers AAPL --verbose` with a short timeout. It captures latency plus stdout/stderr as artifacts and job summaries to flag outages or rate limiting. The workflow is alerting-only and separate from required CI; configure `SMOKE_TEST=1` via the manual dispatch input if you need a stubbed, low-flake run.
+
 ---
 
 ## 📈 Metrics Evaluated
