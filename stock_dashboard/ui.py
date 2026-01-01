@@ -315,7 +315,7 @@ def main():
         with selection_tab:
             col_select, col_actions = st.columns([1.5, 1], gap="medium")
             with col_select:
-                st.multiselect(
+                chip_selection = st.multiselect(
                     "Quick select (recent & defaults):",
                     all_options,
                     default=st.session_state.watchlist,
@@ -374,7 +374,7 @@ def main():
             "Apply watchlist", use_container_width=True, type="primary"
         )
 
-        new_watchlist = list(dict.fromkeys(st.session_state.chip_select or []))
+        new_watchlist = list(dict.fromkeys(chip_selection or []))
 
         if add_clicked and validated_add:
             for ticker in validated_add:
@@ -384,8 +384,8 @@ def main():
                 dict.fromkeys(validated_add + st.session_state.recent_tickers)
             )
 
-        if remove_clicked and st.session_state.chip_select:
-            selected_set = set(st.session_state.chip_select)
+        if remove_clicked and chip_selection:
+            selected_set = set(chip_selection)
             new_watchlist = [t for t in new_watchlist if t not in selected_set]
 
         if not edited_table.empty:
@@ -394,7 +394,9 @@ def main():
                 if not row.Delete and row.Ticker
             ]
 
-        st.session_state.watchlist = list(dict.fromkeys(new_watchlist))
+        deduped_watchlist = list(dict.fromkeys(new_watchlist))
+        if deduped_watchlist != st.session_state.watchlist:
+            st.session_state.watchlist = deduped_watchlist
 
         if apply_clicked or add_clicked or remove_clicked:
             st.caption("Watchlist updated")
