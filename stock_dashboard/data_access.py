@@ -2,13 +2,14 @@ import logging
 import os
 import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 from urllib.parse import urlparse
 
 import pandas as pd
+import requests
 from yahooquery import Ticker
 
 DEFAULT_WATCHLIST_PATH = Path(__file__).resolve().parent.parent / "watchlist.txt"
@@ -19,10 +20,13 @@ _DEFAULT_FUNDAMENTAL_TTL_SECONDS = int(
 )
 _DEFAULT_PRICE_TTL_SECONDS = int(os.getenv("YF_PRICE_TTL_SECONDS", "300"))
 _CACHE_DISABLE_ENV_VAR = "YF_DISABLE_CACHE"
+_HEALTH_CHECK_CACHE_TTL_SECONDS = 15
+_HEALTH_CHECK_KEY = "yahoo_finance"
 
 logger = logging.getLogger(__name__)
 VALIDATE_TICKER_CACHE: dict[tuple[type[Any], tuple[str, ...]], list[str]] = {}
 CACHED_TICKER_CLIENTS: dict[tuple[type[Ticker], tuple[str, ...]], Any] = {}
+HEALTH_CHECK_CACHE: dict[str, tuple[datetime, "DataSourceHealth"]] = {}
 
 
 @dataclass
@@ -34,6 +38,19 @@ class RateLimitError:
     host: str | None = None
     payload: Any | None = None
     remaining: int | None = None
+
+
+@dataclass
+class DataSourceHealth:
+    ok: bool
+    host: str | None
+    latency_ms: float | None
+    headers: Mapping[str, Any]
+    rate_limit: RateLimitError | None = None
+    message: str | None = None
+    checked_at: datetime = field(
+        default_factory=lambda: datetime.now(tz=timezone.utc)
+    )
 
 
 CACHED_SECTIONS: dict[tuple[str, str], tuple[datetime, Mapping[str, Any]]] = {}
@@ -346,6 +363,120 @@ def _active_rate_limit() -> RateLimitError | None:
         host=active_host,
         remaining=remaining_seconds,
     )
+
+
+def _get_cached_health(force_refresh: bool = False) -> DataSourceHealth | None:
+    cached = HEALTH_CHECK_CACHE.get(_HEALTH_CHECK_KEY)
+    if not cached:
+        return None
+
+    expires_at, status = cached
+    if expires_at > _utcnow() and not force_refresh:
+        return status
+
+    HEALTH_CHECK_CACHE.pop(_HEALTH_CHECK_KEY, None)
+    return None
+
+
+def _set_cached_health(status: DataSourceHealth) -> None:
+    expires_at = _utcnow() + timedelta(seconds=_HEALTH_CHECK_CACHE_TTL_SECONDS)
+    HEALTH_CHECK_CACHE[_HEALTH_CHECK_KEY] = (expires_at, status)
+
+
+def _rate_limit_headers(headers: Mapping[str, Any]) -> Mapping[str, Any]:
+    normalized = _normalize_headers(headers)
+    extracted = {
+        key: value
+        for key, value in normalized.items()
+        if "rate" in str(key).lower() or "retry" in str(key).lower()
+    }
+    return extracted or normalized
+
+
+def check_data_source_health(
+    ticker: str = "AAPL",
+    timeout: float = 2.5,
+    force_refresh: bool = False,
+) -> DataSourceHealth:
+    """Return a quick health signal for the Yahoo Finance data source."""
+
+    if is_smoke_mode():
+        return DataSourceHealth(
+            ok=True,
+            host="smoke-test",
+            latency_ms=0.0,
+            headers={},
+            message="Smoke test mode bypasses live checks",
+        )
+
+    if cached := _get_cached_health(force_refresh=force_refresh):
+        return cached
+
+    if active_limit := _active_rate_limit():
+        status = DataSourceHealth(
+            ok=False,
+            host=active_limit.host,
+            latency_ms=None,
+            headers={},
+            rate_limit=active_limit,
+            message="Rate limit active",
+        )
+        _set_cached_health(status)
+        return status
+
+    url = "https://query1.finance.yahoo.com/v7/finance/quote"
+    params = {"symbols": ticker}
+    start = time.perf_counter()
+
+    try:
+        response = requests.get(url, params=params, timeout=timeout)
+        latency_ms = (time.perf_counter() - start) * 1000
+        headers = _normalize_headers(response.headers)
+        host = _extract_host(response)
+        retry_after = _parse_retry_after(headers)
+        rate_limit_error: RateLimitError | None = None
+
+        if response.status_code in {429, 503} or retry_after:
+            rate_limit_error = RateLimitError(
+                status_code=response.status_code,
+                message="Rate limit detected",
+                retry_after=retry_after,
+                headers=headers,
+                host=host,
+                payload=None,
+                remaining=retry_after,
+            )
+            _record_rate_limit(rate_limit_error)
+
+        ok = response.status_code < 500 and not rate_limit_error
+        message = None if response.ok else f"HTTP {response.status_code}"
+        status = DataSourceHealth(
+            ok=ok,
+            host=host,
+            latency_ms=latency_ms,
+            headers=_rate_limit_headers(headers),
+            rate_limit=rate_limit_error,
+            message=message,
+        )
+    except requests.Timeout:
+        status = DataSourceHealth(
+            ok=False,
+            host=None,
+            latency_ms=None,
+            headers={},
+            message=f"Health check timed out after {timeout}s",
+        )
+    except Exception as exc:  # noqa: BLE001
+        status = DataSourceHealth(
+            ok=False,
+            host=None,
+            latency_ms=None,
+            headers={},
+            message=str(exc),
+        )
+
+    _set_cached_health(status)
+    return status
 
 
 def resolve_company_name(ticker: str, quote_type=None, price=None, profile=None) -> str:

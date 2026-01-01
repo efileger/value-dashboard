@@ -60,6 +60,20 @@ def run(tickers: Iterable[str]) -> int:
         LOGGER.error("No valid tickers supplied after validation")
         return 1
 
+    health_status = data_access.check_data_source_health()
+    if not health_status.ok:
+        LOGGER.error(
+            "Data source unhealthy: %s", health_status.message or "health check failed"
+        )
+        if health_status.rate_limit:
+            LOGGER.error(
+                "Rate limit active for %s (retry_after=%s)",
+                health_status.rate_limit.host,
+                health_status.rate_limit.retry_after
+                or health_status.rate_limit.remaining,
+            )
+        return 1
+
     shared_client = data_access.get_batched_ticker_client(validated)
 
     failures = 0
