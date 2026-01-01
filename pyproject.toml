@@ -26,3 +26,11 @@ force-single-line = false
 testpaths = ["tests"]
 addopts = "-ra"
 pythonpath = ["."]
+
+[tool.coverage.run]
+branch = true
+source = ["stock_dashboard"]
+
+[tool.coverage.report]
+fail_under = 75
+show_missing = true
