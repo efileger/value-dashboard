@@ -1,0 +1,208 @@
+name: Live data probe
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: "Comma-separated tickers to query"
+        default: "AAPL"
+        required: true
+      smoke_mode:
+        description: "Use SMOKE_TEST=1 to avoid live Yahoo calls (set to false for live probe)"
+        required: false
+        default: "false"
+      timeout_seconds:
+        description: "Timeout for the CLI call"
+        required: false
+        default: "45"
+
+concurrency:
+  group: live-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-probe:
+    name: Yahoo availability probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHON_VERSION: '3.11'
+      WEBHOOK_URL: ${{ secrets.LIVE_PROBE_WEBHOOK }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+
+      - name: Install runtime dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run live data probe
+        id: probe
+        env:
+          TICKERS: ${{ github.event.inputs.tickers || 'AAPL' }}
+          PROBE_SMOKE_MODE: ${{ github.event.inputs.smoke_mode || 'false' }}
+          CLI_TIMEOUT: ${{ github.event.inputs.timeout_seconds || '45' }}
+        run: |
+          set -euo pipefail
+
+          source .venv/bin/activate
+
+          cat > run_probe.py <<'PY'
+import json
+import os
+import subprocess
+import time
+from pathlib import Path
+
+tickers = os.environ.get("TICKERS", "AAPL")
+smoke_mode = os.environ.get("PROBE_SMOKE_MODE", "false").lower() == "true"
+timeout_seconds = int(os.environ.get("CLI_TIMEOUT", "45"))
+
+env = os.environ.copy()
+if smoke_mode:
+    env["SMOKE_TEST"] = "1"
+else:
+    env.pop("SMOKE_TEST", None)
+
+env.setdefault("YF_DISABLE_CACHE", "1")
+
+cmd = [
+    "python",
+    "-m",
+    "stock_dashboard.cli",
+    "--tickers",
+    tickers,
+    "--verbose",
+]
+
+started_at = time.time()
+stdout = ""
+stderr = ""
+outcome = "success"
+return_code = 0
+
+try:
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=timeout_seconds,
+        env=env,
+    )
+    stdout = proc.stdout
+    stderr = proc.stderr
+    return_code = proc.returncode
+    if proc.returncode != 0:
+        outcome = "failure"
+except subprocess.TimeoutExpired as exc:
+    stdout = exc.stdout or ""
+    stderr = (exc.stderr or "") + f"\nProbe timed out after {timeout_seconds}s"
+    outcome = "timeout"
+    return_code = 124
+
+duration_ms = round((time.time() - started_at) * 1000)
+
+log = Path("probe-output.log")
+log.write_text(
+    "\n".join(
+        [
+            f"Command: {' '.join(cmd)}",
+            f"Tickers: {tickers}",
+            f"Smoke mode: {smoke_mode}",
+            f"Started at: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(started_at))}",
+            f"Duration (ms): {duration_ms}",
+            "--- stdout ---",
+            stdout,
+            "--- stderr ---",
+            stderr,
+        ]
+    )
+)
+
+report = {
+    "command": " ".join(cmd),
+    "tickers": tickers,
+    "smoke_mode": smoke_mode,
+    "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started_at)),
+    "duration_ms": duration_ms,
+    "return_code": return_code,
+    "outcome": outcome,
+}
+
+Path("probe-report.json").write_text(json.dumps(report, indent=2))
+
+print(json.dumps(report, indent=2))
+
+if outcome != "success":
+    raise SystemExit(return_code)
+PY
+
+          python run_probe.py | tee probe-report-pretty.json
+
+      - name: Publish probe summary
+        if: always()
+        run: |
+          python - <<'PY'
+import json
+import os
+from pathlib import Path
+
+report = json.loads(Path("probe-report.json").read_text())
+log = Path("probe-output.log").read_text().strip()
+summary = f"""
+### Live Yahoo probe
+- Outcome: **{report['outcome']}**
+- Started: {report['started_at']} UTC
+- Duration: {report['duration_ms']} ms
+- Tickers: {report['tickers']}
+- Smoke mode: {report['smoke_mode']}
+- Return code: {report['return_code']}
+
+<details>
+<summary>Probe output</summary>
+
+```
+{log}
+```
+</details>
+"""
+
+Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(summary)
+PY
+
+      - name: Upload probe artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-probe-${{ github.run_id }}
+          path: |
+            probe-output.log
+            probe-report.json
+            probe-report-pretty.json
+
+      - name: Send webhook notification (optional)
+        if: env.WEBHOOK_URL != ''
+        env:
+          WEBHOOK_URL: ${{ env.WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          curl -X POST -H "Content-Type: application/json" -d @probe-report.json "$WEBHOOK_URL"
+
+      - name: Treat probe failures as alert-only
+        if: failure()
+        run: |
+          echo "Probe failed; marking run as failed for visibility without blocking required CI."
+          exit 1
