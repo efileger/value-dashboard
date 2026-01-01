@@ -1,4 +1,5 @@
 import logging
+from typing import Any, Mapping
 
 import pandas as pd
 import streamlit as st
@@ -15,7 +16,7 @@ from .metrics import (
 )
 
 
-def _render_metric_rows(metrics: dict[str, object]) -> tuple[pd.DataFrame, int, int]:
+def _render_metric_rows(metrics: dict[str, Any]) -> tuple[pd.DataFrame, int, int]:
     rows = []
     pass_count = 0
     red_count = 0
@@ -33,9 +34,16 @@ def _render_metric_rows(metrics: dict[str, object]) -> tuple[pd.DataFrame, int, 
         if isinstance(value, (int, float)):
             if isinstance(threshold, bool):
                 status = "✅" if value == threshold else "❌"
-            elif "Debt/Equity" in metric or "P/E" in metric or "PEG" in metric or "P/B" in metric or "P/S" in metric or "EV / EBITDA" in metric:
+            elif isinstance(threshold, (int, float)) and (
+                "Debt/Equity" in metric
+                or "P/E" in metric
+                or "PEG" in metric
+                or "P/B" in metric
+                or "P/S" in metric
+                or "EV / EBITDA" in metric
+            ):
                 status = "✅" if value <= threshold else "❌"
-            else:
+            elif isinstance(threshold, (int, float)):
                 status = "✅" if value >= threshold else "❌"
         elif isinstance(value, bool):
             status = "✅" if value else "❌"
@@ -56,7 +64,7 @@ def _render_metric_rows(metrics: dict[str, object]) -> tuple[pd.DataFrame, int, 
     return df, pass_count, red_count
 
 
-def _format_error_details(error_info: dict[str, object]) -> str | None:
+def _format_error_details(error_info: Mapping[str, Any]) -> str | None:
     if not error_info:
         return None
 
@@ -86,7 +94,7 @@ def _format_error_details(error_info: dict[str, object]) -> str | None:
     return "; ".join(parts) if parts else None
 
 
-def _sanitize_error_info(error_info: dict[str, object]) -> dict[str, object]:
+def _sanitize_error_info(error_info: Mapping[str, Any]) -> dict[str, Any]:
     if not error_info:
         return {}
 
@@ -106,7 +114,7 @@ def _sanitize_error_info(error_info: dict[str, object]) -> dict[str, object]:
     return sanitized
 
 
-def _render_error_diagnostics(ticker: str, error_info: dict[str, object]) -> None:
+def _render_error_diagnostics(ticker: str, error_info: Mapping[str, Any]) -> None:
     if not error_info:
         return
 
