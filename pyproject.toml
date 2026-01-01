@@ -13,6 +13,11 @@ target-version = "py39"
 line-length = 100
 extend-select = ["I"]
 
+[tool.mypy]
+python_version = "3.11"
+mypy_path = ["."]
+ignore_missing_imports = true
+
 [tool.ruff.lint.isort]
 combine-as-imports = true
 force-single-line = false

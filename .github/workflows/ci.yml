@@ -145,6 +145,11 @@ jobs:
           source .venv/bin/activate
           ruff check .
 
+      - name: Type-check with mypy
+        run: |
+          source .venv/bin/activate
+          mypy .
+
       - name: Run tests
         run: |
           source .venv/bin/activate

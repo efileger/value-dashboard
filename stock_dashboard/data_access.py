@@ -385,7 +385,7 @@ def _detect_buybacks(ticker_client: Any, key_stats: Mapping[str, Any]) -> bool |
 
 def fetch_ticker_sections(
     ticker: str, ticker_cls: type[Ticker] = Ticker, ticker_client: Any | None = None
-) -> dict[str, Mapping[str, Any]]:
+) -> dict[str, Any]:
     """Load all ticker sections used by the dashboard with caching and jitter."""
 
     requested_sections = (
@@ -397,7 +397,7 @@ def fetch_ticker_sections(
         "price",
         "buybacks",
     )
-    cached_sections: dict[str, Mapping[str, Any]] = {}
+    cached_sections: dict[str, Any] = {}
     cache_hits: set[str] = set()
 
     for section_name in requested_sections:
@@ -580,7 +580,7 @@ def fetch_ticker_sections(
                 _record_rate_limit(rate_limit)
             return {}, details
 
-    sections: dict[str, Mapping[str, Any]] = {**cached_sections}
+    sections: dict[str, Any] = {**cached_sections}
     error_info: dict[str, Any] = {}
 
     needs_network = missing_sections or "buybacks" not in sections

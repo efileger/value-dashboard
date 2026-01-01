@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 from . import data_access, metrics
 from .logging import configure_logging
@@ -22,10 +22,12 @@ def _parse_tickers(raw: str) -> list[str]:
     return tickers
 
 
-def _normalized_sections(
-    sections: dict[str, dict[str, object]]
-) -> dict[str, dict[str, object]]:
-    return {k: v for k, v in sections.items() if k not in _DEF_EXCLUDED_SECTION_KEYS}
+def _normalized_sections(sections: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        k: v
+        for k, v in sections.items()
+        if k not in _DEF_EXCLUDED_SECTION_KEYS
+    }
 
 
 def _process_ticker(ticker: str, ticker_client: object | None = None) -> bool:
