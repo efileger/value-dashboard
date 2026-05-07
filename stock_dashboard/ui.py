@@ -495,7 +495,8 @@ def main():
 
     bypass_health_gate = bool(os.getenv("PYTEST_CURRENT_TEST"))
 
-    if not health_status.ok:
+    has_rate_limit_signal = bool(health_status.rate_limit)
+    if not health_status.ok and not has_rate_limit_signal:
         queued_message = "Skipping ticker fetches until the data source is healthy."
         if tickers:
             queued_message += f" Watchlist queued: {', '.join(tickers)}"
@@ -504,6 +505,12 @@ def main():
         else:
             st.info(queued_message)
             return
+
+    if not health_status.ok and has_rate_limit_signal and not bypass_health_gate:
+        st.info(
+            "Health probe reported throttling, but continuing with per-ticker fetches "
+            "in case data requests still succeed."
+        )
 
     batched_client = data_access.get_batched_ticker_client(tickers)
 
