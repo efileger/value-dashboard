@@ -22,6 +22,7 @@ _DEFAULT_PRICE_TTL_SECONDS = int(os.getenv("YF_PRICE_TTL_SECONDS", "300"))
 _CACHE_DISABLE_ENV_VAR = "YF_DISABLE_CACHE"
 _HEALTH_CHECK_CACHE_TTL_SECONDS = 15
 _HEALTH_CHECK_KEY = "yahoo_finance"
+_HEALTH_CHECK_HOSTS = ("query1.finance.yahoo.com", "query2.finance.yahoo.com")
 
 logger = logging.getLogger(__name__)
 VALIDATE_TICKER_CACHE: dict[tuple[type[Any], tuple[str, ...]], list[str]] = {}
@@ -424,15 +425,39 @@ def check_data_source_health(
         _set_cached_health(status)
         return status
 
-    url = "https://query1.finance.yahoo.com/v7/finance/quote"
     params = {"symbols": ticker}
-    start = time.perf_counter()
+
+    responses: list[tuple[str, Any, float]] = []
+    for host in _HEALTH_CHECK_HOSTS:
+        url = f"https://{host}/v7/finance/quote"
+        start = time.perf_counter()
+        try:
+            response = requests.get(url, params=params, timeout=timeout)
+        except requests.Timeout:
+            continue
+        except Exception:
+            continue
+        latency_ms = (time.perf_counter() - start) * 1000
+        responses.append((host, response, latency_ms))
+        if response.status_code < 500 and response.status_code != 429:
+            break
+
+    if not responses:
+        status = DataSourceHealth(
+            ok=False,
+            host=None,
+            latency_ms=None,
+            headers={},
+            message=f"Health check timed out after {timeout}s",
+        )
+        _set_cached_health(status)
+        return status
+
+    host_hint, response, latency_ms = responses[-1]
 
     try:
-        response = requests.get(url, params=params, timeout=timeout)
-        latency_ms = (time.perf_counter() - start) * 1000
         headers = _normalize_headers(response.headers)
-        host = _extract_host(response)
+        host = _extract_host(response) or host_hint
         retry_after = _parse_retry_after(headers)
         rate_limit_error: RateLimitError | None = None
 
@@ -446,7 +471,6 @@ def check_data_source_health(
                 payload=None,
                 remaining=retry_after,
             )
-            _record_rate_limit(rate_limit_error)
 
         ok = response.status_code < 500 and not rate_limit_error
         message = None if response.ok else f"HTTP {response.status_code}"
@@ -457,14 +481,6 @@ def check_data_source_health(
             headers=_rate_limit_headers(headers),
             rate_limit=rate_limit_error,
             message=message,
-        )
-    except requests.Timeout:
-        status = DataSourceHealth(
-            ok=False,
-            host=None,
-            latency_ms=None,
-            headers={},
-            message=f"Health check timed out after {timeout}s",
         )
     except Exception as exc:  # noqa: BLE001
         status = DataSourceHealth(
