@@ -112,3 +112,36 @@ def test_resolve_suggested_action_thresholds():
     assert ui._resolve_suggested_action(pass_count=12, red_count=0) == "Buy"
     assert ui._resolve_suggested_action(pass_count=6, red_count=10) == "Sell"
     assert ui._resolve_suggested_action(pass_count=8, red_count=4) == "Hold"
+
+
+def test_render_action_summary_renders_counts_and_groups(monkeypatch):
+    markdown_calls: list[str] = []
+
+    def capture_markdown(message, *args, **kwargs):
+        markdown_calls.append(message)
+
+    monkeypatch.setattr(ui.st, "markdown", capture_markdown)
+
+    ui._render_action_summary(
+        {
+            "MSFT": "Buy",
+            "AAPL": "Hold",
+            "TSLA": "Sell",
+            "NVDA": "Buy",
+        }
+    )
+
+    assert any("Watchlist Action Snapshot (4 tickers)" in msg for msg in markdown_calls)
+    assert any("Buy: 2" in msg and "Hold: 1" in msg and "Sell: 1" in msg for msg in markdown_calls)
+    assert any("**Buy**: MSFT, NVDA" in msg for msg in markdown_calls)
+    assert any("**Hold**: AAPL" in msg for msg in markdown_calls)
+    assert any("**Sell**: TSLA" in msg for msg in markdown_calls)
+
+
+def test_render_action_summary_noop_when_empty(monkeypatch):
+    markdown_calls: list[str] = []
+    monkeypatch.setattr(ui.st, "markdown", lambda message, *args, **kwargs: markdown_calls.append(message))
+
+    ui._render_action_summary({})
+
+    assert not markdown_calls
