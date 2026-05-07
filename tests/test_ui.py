@@ -106,3 +106,9 @@ def test_display_stock_includes_http_error_context(streamlit_spy, http_error_tic
     assert any("api.yahoo.test" in warning for warning in captured["warnings"])
     assert "Diagnostics for FAIL" in captured["expanders"]
     assert captured["json_calls"], "Expected diagnostic payload to be recorded"
+
+
+def test_resolve_suggested_action_thresholds():
+    assert ui._resolve_suggested_action(pass_count=12, red_count=0) == "Buy"
+    assert ui._resolve_suggested_action(pass_count=6, red_count=10) == "Sell"
+    assert ui._resolve_suggested_action(pass_count=8, red_count=4) == "Hold"
