@@ -65,6 +65,40 @@ def _render_metric_rows(metrics: dict[str, Any]) -> tuple[pd.DataFrame, int, int
     return df, pass_count, red_count
 
 
+def _resolve_suggested_action(pass_count: int, red_count: int) -> str:
+    if pass_count >= 12:
+        return "Buy"
+    if red_count >= 10:
+        return "Sell"
+    return "Hold"
+
+
+def _render_action_summary(actions_by_ticker: Mapping[str, str]) -> None:
+    if not actions_by_ticker:
+        return
+
+    action_order = ["Buy", "Hold", "Sell"]
+    action_counts = {action: 0 for action in action_order}
+    for action in actions_by_ticker.values():
+        if action in action_counts:
+            action_counts[action] += 1
+
+    summary_parts = [f"{action}: {action_counts[action]}" for action in action_order]
+    st.markdown(f"### 🧭 Watchlist Action Snapshot ({len(actions_by_ticker)} tickers)")
+    st.markdown(" | ".join(summary_parts))
+
+    detail_lines = []
+    for action in action_order:
+        tickers = sorted(
+            ticker for ticker, ticker_action in actions_by_ticker.items() if ticker_action == action
+        )
+        if tickers:
+            detail_lines.append(f"- **{action}**: {', '.join(tickers)}")
+
+    if detail_lines:
+        st.markdown("\n".join(detail_lines))
+
+
 def _format_error_details(error_info: Mapping[str, Any]) -> str | None:
     if not error_info:
         return None
@@ -167,7 +201,7 @@ def display_stock(
     ticker_cls=None,
     ticker_client=None,
     health_status: data_access.DataSourceHealth | None = None,
-):
+) -> str | None:
     ticker_cls = ticker_cls or data_access.Ticker
     sections = data_access.fetch_ticker_sections(
         ticker, ticker_cls=ticker_cls, ticker_client=ticker_client
@@ -194,7 +228,7 @@ def display_stock(
         except Exception:
             # Toast not available in some Streamlit versions; banner is sufficient.
             pass
-        return
+        return None
 
     core_sections = {
         k: v for k, v in sections.items() if k not in {"buybacks", "error"}
@@ -300,12 +334,10 @@ def display_stock(
     st.markdown(f"### Snapshot Score: {score}")
 
     decision = "Hold"
-    if pass_count >= 12:
-        decision = "Buy"
-    elif red_count >= 10:
-        decision = "Sell"
+    decision = _resolve_suggested_action(pass_count, red_count)
 
     st.markdown(f"### 📌 Suggested Action: **{decision}**")
+    return decision
 
 
 def _render_health_banner(health_status: data_access.DataSourceHealth) -> None:
@@ -514,18 +546,24 @@ def main():
 
     batched_client = data_access.get_batched_ticker_client(tickers)
 
+    actions_by_ticker: dict[str, str] = {}
     for ticker in tickers:
         try:
             try:
-                display_stock(
+                decision = display_stock(
                     ticker,
                     ticker_client=batched_client,
                     health_status=health_status,
                 )
             except TypeError:
-                display_stock(ticker, ticker_client=batched_client)
+                decision = display_stock(ticker, ticker_client=batched_client)
+
+            if decision:
+                actions_by_ticker[ticker] = decision
         except Exception as e:
             st.error(f"Error loading {ticker}: {e}")
+
+    _render_action_summary(actions_by_ticker)
 
 
 if __name__ == "__main__":
