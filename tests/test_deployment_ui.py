@@ -20,7 +20,7 @@ def test_full_app_smoke_has_planner_without_buy_labels(monkeypatch):
     assert any("No watchlist business clears" in message.value for message in app.info)
     assert not any("Suggested Action" in message.value for message in app.markdown)
     assert widget(app.number_input, "Cash to deploy today (USD)").value == 5000
-    assert len(app.get("download_button")) == 3
+    assert len(app.get("download_button")) == 4
 
 
 def planner_app(profile):
@@ -143,10 +143,27 @@ def test_blocked_targets_remain_ranked_in_default_view(monkeypatch):
     assert not app.exception
     assert any("No watchlist business clears" in message.value for message in app.info)
     assert any("Strongest modeled target: BEST" in message.value for message in app.markdown)
-    top = app.dataframe[0].value
+    top = next(d.value for d in app.dataframe if "Rank" in d.value.columns)
     assert top["Ticker"].tolist() == ["BEST", "OTHER"]
     assert top["Rank"].tolist() == [1, 2]
     assert (top["Suggested USD"] == 0).all()
     assert top["Why / blockers"].str.contains("Thesis").all()
     full = next(e for e in app.expander if e.label.startswith("Full watchlist: strongest to weakest"))
     assert full.proto.expanded
+
+
+def test_diagnostics_explains_missing_business_inputs_without_provider_error(monkeypatch):
+    monkeypatch.delenv("VALUATION_PROFILE_PATH", raising=False)
+    profile = ready_profile()
+    profile["assumptions"]["BEST"]["eps"] = 0
+    app = planner_app(profile)
+    assert not app.exception
+    assert any(
+        "2/2 quotes available" in caption.value and "0 provider errors" in caption.value for caption in app.caption
+    )
+    diagnostics = next(d.value for d in app.dataframe if "Provider status" in d.value.columns)
+    row = diagnostics[diagnostics["Ticker"] == "BEST"].iloc[0]
+    assert row["Provider status"] == "Data received"
+    assert "Normalized EPS" in row["Business review needed"]
+    assert not row["Scenario calculated"]
+    assert any(b.label == "Download data diagnostics (JSON)" for b in app.get("download_button"))
