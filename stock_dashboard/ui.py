@@ -170,6 +170,7 @@ def _serialize_health_status(
 
     return {
         "ok": health_status.ok,
+        "verified": health_status.verified,
         "host": health_status.host,
         "latency_ms": health_status.latency_ms,
         "headers": dict(health_status.headers),
@@ -202,6 +203,7 @@ def display_stock(
     ticker_cls=None,
     ticker_client=None,
     health_status: data_access.DataSourceHealth | None = None,
+    suppress_rate_limit: bool = False,
 ) -> str | None:
     ticker_cls = ticker_cls or data_access.Ticker
     sections = data_access.fetch_ticker_sections(ticker, ticker_cls=ticker_cls, ticker_client=ticker_client)
@@ -209,22 +211,23 @@ def display_stock(
     error_info = sections.get("error") or {}
     rate_limit = error_info.get("rate_limit")
     if isinstance(rate_limit, data_access.RateLimitError):
-        retry_after = rate_limit.retry_after or rate_limit.remaining or 0
         remaining_seconds = rate_limit.remaining or rate_limit.retry_after or 0
         host = rate_limit.host or "Yahoo Finance"
         details = _format_error_details(error_info) or "Rate limit detected"
         message = f"Rate limit detected from {host}. Please wait {remaining_seconds} seconds before retrying."
-        if retry_after:
-            message += f" Retry-After header indicates {retry_after} seconds."
+        server_retry = data_access._parse_retry_after(rate_limit.headers)
+        if server_retry:
+            message += f" Retry-After header indicates {server_retry} seconds."
         if details and details not in message:
             message += f" Details: {details}."
-        st.info(message)
-        _render_error_diagnostics(ticker, error_info, health_status)
-        try:
-            st.toast(message)
-        except Exception:
-            # Toast not available in some Streamlit versions; banner is sufficient.
-            logging.getLogger(__name__).exception("Unable to display rate-limit toast")
+        if not suppress_rate_limit:
+            st.info(message)
+            _render_error_diagnostics(ticker, error_info, health_status)
+            try:
+                st.toast(message)
+            except Exception:
+                # Toast not available in some Streamlit versions; banner is sufficient.
+                logging.getLogger(__name__).exception("Unable to display rate-limit toast")
         if not any(sections.get(k) for k in ("summary_detail", "financial_data", "key_stats", "price")):
             return None
         st.caption("Showing cached screening data; purchase recommendations remain blocked during throttling.")
@@ -338,6 +341,10 @@ def display_stock(
 def _render_health_banner(health_status: data_access.DataSourceHealth) -> None:
     success_fn = getattr(st, "success", None) or getattr(st, "info", None)
     warn_fn = getattr(st, "warning", None) or getattr(st, "info", None)
+
+    if health_status.ok and not health_status.verified:
+        st.info(health_status.message)
+        return
 
     if health_status.ok:
         latency = f"{health_status.latency_ms:.0f} ms" if health_status.latency_ms else "n/a"
@@ -503,9 +510,9 @@ def main():
 
     tickers = data_access.validate_tickers(st.session_state.watchlist)
     health_status = data_access.check_data_source_health(force_refresh=watchlist_changed)
-    _render_health_banner(health_status)
-
     deployment_ui.render(tickers, load_market=health_status.ok or bool(health_status.rate_limit))
+    health_status = data_access.check_data_source_health()
+    _render_health_banner(health_status)
 
     has_rate_limit_signal = bool(health_status.rate_limit)
     if not health_status.ok and not has_rate_limit_signal:
@@ -531,6 +538,7 @@ def main():
                     ticker,
                     ticker_client=batched_client,
                     health_status=health_status,
+                    suppress_rate_limit=True,
                 )
             except TypeError:
                 decision = display_stock(ticker, ticker_client=batched_client)
