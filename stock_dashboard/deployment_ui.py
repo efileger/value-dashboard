@@ -226,6 +226,7 @@ def render(tickers: list[str], load_market: bool = True) -> None:
     assumptions = {t: Assumptions(**a) for t, a in profile["assumptions"].items()}
     results, retained = deployment(tickers, assumptions, sections, policy, profile["purchases"])
     eligible = [r for r in results if r.eligible]
+    ranked = [r for r in results if r.rank is not None]
     proposed = sum(r.allocation for r in results)
     st.markdown(f"**{policy.account} · Proposed today: ${proposed:,.2f} · Unallocated request: ${retained:,.2f}**")
     started = parse_date(policy.plan_started_on)
@@ -233,6 +234,13 @@ def render(tickers: list[str], load_market: bool = True) -> None:
         st.info(
             "This deployment plan is at least six months old. Reassess unused capital and "
             "deliberately choose continued valuation gates or ordinary DCA; there is no forced deployment."
+        )
+    if ranked:
+        leader = ranked[0]
+        st.markdown(
+            f"**Strongest modeled target: {leader.ticker}** · "
+            f"Conservative modeled annual return: {leader.bear_return:.1%}. "
+            "Ranking includes businesses that fail purchase gates."
         )
     if eligible:
         best = eligible[0]
@@ -248,7 +256,9 @@ def render(tickers: list[str], load_market: bool = True) -> None:
     if data_access.is_smoke_mode():
         st.warning("Demo market data: these results are not a live deployment assessment.")
     st.caption(
-        "Rank: conservative annual return, then discount, confidence and portfolio headroom. "
+        "Rank all comparable business cases by conservative annual return, then discount, confidence and portfolio headroom. "
+        "Purchase gates affect suggested cash, not ranking. Unreviewed or stale cases retain visible blockers; "
+        "businesses without usable valuation inputs are listed as unranked. "
         "One tranche per business review; a drop through several price gates does not release several tranches."
     )
 
@@ -289,14 +299,24 @@ def render(tickers: list[str], load_market: bool = True) -> None:
             ]
         )
 
-    st.markdown("### Top five qualifying opportunities")
-    top = table(eligible[:5])
+    st.markdown("### Top five deployment targets — regardless of purchase gates")
+    top = table(ranked[:5])
     if not top.empty:
         top = top[
-            ["Rank", "Ticker", "Price USD", "Bear value", "Conservative discount %", "Bear return %", "Suggested USD"]
+            [
+                "Rank",
+                "Ticker",
+                "Status",
+                "Price USD",
+                "Bear value",
+                "Conservative discount %",
+                "Bear return %",
+                "Suggested USD",
+                "Why / blockers",
+            ]
         ]
     st.dataframe(top, hide_index=True, width="stretch")
-    with st.expander("Full watchlist: valuations and purchase blockers", expanded=not eligible):
+    with st.expander("Full watchlist: strongest to weakest, with purchase blockers", expanded=True):
         st.dataframe(table(results), hide_index=True, width="stretch")
     # Render the record action before export so a purchase is included in the download.
     with st.expander("Record an executed purchase / review purchase history"):
@@ -391,7 +411,8 @@ def render(tickers: list[str], load_market: bool = True) -> None:
             "portfolio headroom and available unreserved cash.\n\n"
             "A business review expires after 95 days by default; a newer reported quarter blocks buying "
             "sooner. Unknown or stale quote timestamps block buying (four calendar days allow weekends). "
-            "The portfolio snapshot must be within 30 days. Low-confidence or unverified cases stay unranked. "
+            "The portfolio snapshot must be within 30 days. Low-confidence or unverified cases can be ranked "
+            "when model inputs are available, but remain ineligible for suggested purchases. "
             "Confirm material news between reviews; the app does not monitor thesis failures.\n\n"
             "This is a scenario estimate, not an independently established intrinsic value. EPS can obscure "
             "capex, debt, settlement cash, dilution and cycle effects; document their reconciliation or leave "

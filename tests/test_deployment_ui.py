@@ -132,3 +132,21 @@ render([], load_market=False)
     assert not app.exception
     assert any("Cannot load saved" in e.value for e in app.error)
     assert any("No watchlist business clears" in m.value for m in app.info)
+
+
+def test_blocked_targets_remain_ranked_in_default_view(monkeypatch):
+    monkeypatch.delenv("VALUATION_PROFILE_PATH", raising=False)
+    profile = ready_profile()
+    for case in profile["assumptions"].values():
+        case["thesis_intact"] = False
+    app = planner_app(profile)
+    assert not app.exception
+    assert any("No watchlist business clears" in message.value for message in app.info)
+    assert any("Strongest modeled target: BEST" in message.value for message in app.markdown)
+    top = app.dataframe[0].value
+    assert top["Ticker"].tolist() == ["BEST", "OTHER"]
+    assert top["Rank"].tolist() == [1, 2]
+    assert (top["Suggested USD"] == 0).all()
+    assert top["Why / blockers"].str.contains("Thesis").all()
+    full = next(e for e in app.expander if e.label.startswith("Full watchlist: strongest to weakest"))
+    assert full.proto.expanded

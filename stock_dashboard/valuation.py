@@ -289,17 +289,21 @@ def deployment(
             r.ticker,
         )
 
-    qualified = sorted((r for r in results if r.eligible), key=order)
+    # Relative attractiveness is independent of policy eligibility. Missing model
+    # inputs cannot support a meaningful return comparison and remain unranked.
+    ranked = sorted((r for r in results if r.bear_return is not None and r.discount is not None), key=order)
+    for rank, result in enumerate(ranked, 1):
+        result.rank = rank
+    qualified = [r for r in ranked if r.eligible]
     remaining = min(policy.requested, max(0.0, policy.available_cash - policy.protected_reserve))
     remaining = math.floor(remaining * 100 + 1e-8) / 100
-    for rank, result in enumerate(qualified, 1):
-        result.rank = rank
-        if rank <= policy.max_businesses:
+    for position, result in enumerate(qualified, 1):
+        if position <= policy.max_businesses:
             result.allocation = math.floor(min(remaining, result.tranche_limit) * 100 + 1e-8) / 100
             remaining = round(remaining - result.allocation, 2)
-    blocked = sorted((r for r in results if not r.eligible), key=order)
+    unranked = sorted((r for r in results if r.rank is None), key=lambda r: r.ticker)
     retained = round(policy.requested - sum(r.allocation for r in qualified), 2)
-    return [*qualified, *blocked], retained
+    return [*ranked, *unranked], retained
 
 
 def conversation_seeds() -> dict[str, Assumptions]:

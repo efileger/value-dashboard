@@ -98,7 +98,7 @@ def test_cash_reserve_tranches_and_weights_limit_spread(business, policy):
 def test_no_candidate_means_hold_all_cash(business, policy):
     result = run(business, policy, quote(200))
     assert not result.eligible
-    assert result.rank is None
+    assert result.rank == 1
     assert result.allocation == 0
     assert any("discount" in reason for reason in result.reasons)
 
@@ -235,3 +235,44 @@ def test_conversation_seeds_cannot_allocate_until_reviewed(policy):
 def test_invalid_policy_rejected(policy, change):
     with pytest.raises(ValueError):
         deployment([], {}, {}, replace(policy, **change), [], NOW)
+
+
+def test_ranking_survives_every_business_failing_purchase_gates(business, policy):
+    cases = {"STRONG": business, "WEAK": business}
+    data = {"STRONG": quote(150), "WEAK": quote(200)}
+    results, retained = deployment(["WEAK", "STRONG"], cases, data, policy, [], NOW)
+    assert [r.ticker for r in results] == ["STRONG", "WEAK"]
+    assert [r.rank for r in results] == [1, 2]
+    assert all(not r.eligible and r.allocation == 0 and r.reasons for r in results)
+    assert retained == policy.requested
+
+
+def test_strongest_blocked_target_does_not_displace_eligible_cash_allocation(business, policy):
+    results, retained = deployment(
+        ["QUALIFIES", "BLOCKED", "UNKNOWN"],
+        {"BLOCKED": replace(business, thesis_intact=False), "QUALIFIES": business},
+        {"BLOCKED": quote(50), "QUALIFIES": quote(70)},
+        replace(policy, max_businesses=1),
+        [],
+        NOW,
+    )
+    assert [r.ticker for r in results] == ["BLOCKED", "QUALIFIES", "UNKNOWN"]
+    assert [r.rank for r in results] == [1, 2, None]
+    assert [r.allocation for r in results] == [0, 5000, 0]
+    assert retained == 0
+
+
+def test_ranking_is_independent_of_approvals_and_deployment_budget(business, policy):
+    data = {"A": quote(70), "B": quote(80)}
+    approved, _ = deployment(["A", "B"], {"A": business, "B": business}, data, policy, [], NOW)
+    blocked, retained = deployment(
+        ["A", "B"],
+        {"A": replace(business, confidence="Low"), "B": replace(business, confidence="Low")},
+        data,
+        replace(policy, requested=0),
+        [],
+        NOW,
+    )
+    assert [(r.ticker, r.rank) for r in approved] == [(r.ticker, r.rank) for r in blocked]
+    assert all(r.allocation == 0 and not r.eligible for r in blocked)
+    assert retained == 0
