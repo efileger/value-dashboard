@@ -187,3 +187,17 @@ Dividends do not get a standalone bonus in deployment ranking.
 ## 📄 License
 
 MIT License
+
+### Yahoo throttling and regression coverage
+
+An HTTP 429 pauses Yahoo requests across the dashboard, including symbol validation and client
+creation. The app honors `Retry-After` (seconds or HTTP date), otherwise waits five minutes.
+Reruns and watchlist changes do not bypass that cooldown. Available unexpired cached screening
+metrics remain visible, but throttled data cannot produce an actionable deployment recommendation.
+Batched module responses are cached for all returned watchlist symbols to avoid downloading the
+same watchlist repeatedly. A 401/403 health response is not reported as healthy.
+
+The shared `scripts/check.sh fast` suite exercises cold production-style 429 responses, page reruns,
+cooldown recovery, partial/cache behavior, immediate stop after a section fails, and batched request
+counts offline. The UI no longer has a pytest-only health-gate bypass. These tests catch application
+regressions; they cannot guarantee that Yahoo will accept a shared hosting provider's outbound IP.
