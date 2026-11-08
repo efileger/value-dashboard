@@ -31,11 +31,11 @@ def test_health_status_and_cache_contract(monkeypatch, status_code, healthy, thr
     assert bool(health.rate_limit) is throttled
     if throttled:
         assert health.rate_limit.retry_after == 7
-    assert len(calls) == (1 if healthy else 2)
+    assert len(calls) == (1 if healthy or throttled else 2)
     assert data_access.check_data_source_health() is health
-    assert len(calls) == (1 if healthy else 2)
+    assert len(calls) == (1 if healthy or throttled else 2)
     data_access.check_data_source_health(force_refresh=True)
-    assert len(calls) == (2 if healthy else 4)
+    assert len(calls) == (1 if throttled else 2 if healthy else 4)
 
 
 @pytest.mark.parametrize("failure", [requests.Timeout, requests.ConnectionError])

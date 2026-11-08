@@ -7,6 +7,7 @@ import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -17,7 +18,7 @@ from yahooquery import Ticker
 
 DEFAULT_WATCHLIST_PATH = Path(__file__).resolve().parent.parent / "watchlist.txt"
 DEFAULT_TICKERS_FALLBACK = "AAPL,MSFT,META"
-_DEFAULT_RATE_LIMIT_SECONDS = 60
+_DEFAULT_RATE_LIMIT_SECONDS = 300
 _DEFAULT_FUNDAMENTAL_TTL_SECONDS = int(os.getenv("YF_FUNDAMENTAL_TTL_SECONDS", "21600"))
 _DEFAULT_PRICE_TTL_SECONDS = int(os.getenv("YF_PRICE_TTL_SECONDS", "300"))
 _CACHE_DISABLE_ENV_VAR = "YF_DISABLE_CACHE"
@@ -151,6 +152,9 @@ def validate_tickers(tickers: Iterable[str], ticker_cls: type[Ticker] = Ticker) 
     if can_use_cache and cache_key in VALIDATE_TICKER_CACHE:
         return VALIDATE_TICKER_CACHE[cache_key]
 
+    if _active_rate_limit():
+        return normalized
+
     try:
         ticker_client = ticker_cls(normalized)
         quote_type_section = getattr(ticker_client, "quote_type", {})
@@ -194,7 +198,7 @@ def validate_tickers(tickers: Iterable[str], ticker_cls: type[Ticker] = Ticker) 
 def get_batched_ticker_client(tickers: Iterable[str], ticker_cls: type[Ticker] = Ticker) -> Any | None:
     """Return a shared yahooquery client for multiple tickers when available."""
 
-    if is_smoke_mode():
+    if is_smoke_mode() or _active_rate_limit():
         return None
 
     normalized: tuple[str, ...] = tuple(dict.fromkeys(ticker.upper() for ticker in tickers if ticker))
@@ -301,7 +305,9 @@ def _parse_retry_after(headers: Mapping[str, Any], payload: Any = None) -> int |
             return int(str(header_value))
         except (TypeError, ValueError):
             try:
-                parsed_date = datetime.fromisoformat(str(header_value))
+                parsed_date = parsedate_to_datetime(str(header_value))
+                if parsed_date.tzinfo is None:
+                    parsed_date = parsed_date.replace(tzinfo=timezone.utc)
                 return max(0, int((parsed_date - _utcnow()).total_seconds()))
             except (TypeError, ValueError, OverflowError):
                 return None
@@ -407,7 +413,8 @@ def check_data_source_health(
             message="Smoke test mode bypasses live checks",
         )
 
-    if cached := _get_cached_health(force_refresh=force_refresh):
+    cached = _get_cached_health(force_refresh=force_refresh)
+    if cached and (cached.rate_limit or not _active_rate_limit()):
         return cached
 
     if active_limit := _active_rate_limit():
@@ -437,7 +444,7 @@ def check_data_source_health(
             continue
         latency_ms = (time.perf_counter() - start) * 1000
         responses.append((host, response, latency_ms))
-        if response.status_code < 500 and response.status_code != 429:
+        if response.status_code < 500 or response.status_code == 503:
             break
 
     if not responses:
@@ -470,7 +477,9 @@ def check_data_source_health(
                 remaining=retry_after,
             )
 
-        ok = response.status_code < 500 and not rate_limit_error
+        if rate_limit_error:
+            _record_rate_limit(rate_limit_error)
+        ok = response.ok and not rate_limit_error
         message = None if response.ok else f"HTTP {response.status_code}"
         status = DataSourceHealth(
             ok=ok,
@@ -664,7 +673,7 @@ def fetch_ticker_sections(
     missing_sections = [section for section in core_section_names if section in missing_sections]
 
     active_limit = _active_rate_limit()
-    if active_limit and missing_sections:
+    if active_limit:
         result = {
             "summary_detail": cached_sections.get("summary_detail", {}),
             "financial_data": cached_sections.get("financial_data", {}),
@@ -695,7 +704,7 @@ def fetch_ticker_sections(
 
         response = getattr(exc, "response", None)
         status_code = getattr(exc, "status_code", None)
-        if response and not status_code:
+        if response is not None and not status_code:
             status_code = getattr(response, "status_code", None)
 
         headers = _normalize_headers(getattr(response, "headers", {}))
@@ -743,6 +752,12 @@ def fetch_ticker_sections(
     def _fetch_section(client: Any, attr_name: str) -> tuple[Mapping[str, Any], dict[str, Any]]:
         try:
             section = getattr(client, attr_name)
+            # A batched property contains every symbol. Cache all of them rather
+            # than repeating the same watchlist-wide HTTP request for each row.
+            for symbol in getattr(client, "symbols", [ticker]):
+                payload = _safe_section(section, symbol)
+                if payload:
+                    _set_cached_section(symbol, attr_name, payload)
             return _safe_section(section, ticker), {}
         except Exception as exc:  # noqa: BLE001
             details = _capture_error_details(exc)
@@ -752,7 +767,7 @@ def fetch_ticker_sections(
 
     sections: dict[str, Any] = {**cached_sections}
     receipt_times = _section_fetched_at(ticker, cache_hits)
-    error_info: dict[str, Any] = {}
+    error_info: dict[str, Any] = {"message": active_limit.message, "rate_limit": active_limit} if active_limit else {}
 
     needs_network = missing_sections or "buybacks" not in sections
     network_called = bool(needs_network)
@@ -806,14 +821,18 @@ def fetch_ticker_sections(
         if section:
             receipt_times[key] = _utcnow().isoformat()
         _set_cached_section(ticker, key, section)
-        if section_error and not error_info:
+        if section_error and (not error_info or section_error.get("rate_limit")):
             error_info = section_error
+        if section_error.get("rate_limit"):
+            break
 
     if rate_limit := error_info.get("rate_limit"):
         _record_rate_limit(rate_limit, ticker)
 
     if "buybacks" not in sections:
-        buybacks = _detect_buybacks(client_to_use, sections.get("key_stats", {}), ticker)
+        buybacks = (
+            None if _active_rate_limit() else _detect_buybacks(client_to_use, sections.get("key_stats", {}), ticker)
+        )
         sections["buybacks"] = buybacks
         _set_cached_section(ticker, "buybacks", {"value": buybacks})
     else:

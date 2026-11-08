@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Mapping
 from typing import Any
 
@@ -226,7 +225,9 @@ def display_stock(
         except Exception:
             # Toast not available in some Streamlit versions; banner is sufficient.
             logging.getLogger(__name__).exception("Unable to display rate-limit toast")
-        return None
+        if not any(sections.get(k) for k in ("summary_detail", "financial_data", "key_stats", "price")):
+            return None
+        st.caption("Showing cached screening data; purchase recommendations remain blocked during throttling.")
 
     core_sections = {k: v for k, v in sections.items() if k not in {"buybacks", "error", "cache_info", "demo"}}
 
@@ -360,6 +361,8 @@ def main():
     st.set_page_config(page_title="Value Investing Dashboard", layout="wide")
     st.title("📊 Value Investing Dashboard")
 
+    # Establish cooldown before validation/client construction can contact Yahoo.
+    health_status = data_access.check_data_source_health()
     default_watchlist = data_access.get_default_watchlist_string()
     default_ticker_list = [ticker.strip().upper() for ticker in default_watchlist.split(",") if ticker.strip()]
     validated_defaults = data_access.validate_tickers(default_ticker_list)
@@ -504,23 +507,18 @@ def main():
 
     deployment_ui.render(tickers, load_market=health_status.ok or bool(health_status.rate_limit))
 
-    bypass_health_gate = bool(os.getenv("PYTEST_CURRENT_TEST"))
-
     has_rate_limit_signal = bool(health_status.rate_limit)
     if not health_status.ok and not has_rate_limit_signal:
         queued_message = "Skipping ticker fetches until the data source is healthy."
         if tickers:
             queued_message += f" Watchlist queued: {', '.join(tickers)}"
-        if bypass_health_gate:
-            st.info("Health probe failed in test mode; proceeding for coverage")
-        else:
-            st.info(queued_message)
-            return
+        st.info(queued_message)
+        return
 
-    if not health_status.ok and has_rate_limit_signal and not bypass_health_gate:
+    if not health_status.ok and has_rate_limit_signal:
         st.info(
-            "Health probe reported throttling, but continuing with per-ticker fetches "
-            "in case data requests still succeed."
+            "Yahoo is throttling requests. Network requests are paused during the cooldown; "
+            "available cached screening data can still be shown."
         )
 
     batched_client = data_access.get_batched_ticker_client(tickers)
