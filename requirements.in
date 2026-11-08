@@ -1,0 +1,4 @@
+# Runtime dependencies. Regenerate locks with scripts/lock-dependencies.sh on Python 3.11.
+streamlit
+yahooquery
+pandas

@@ -23,24 +23,16 @@ def _parse_tickers(raw: str) -> list[str]:
 
 
 def _normalized_sections(sections: Mapping[str, Any]) -> dict[str, Any]:
-    return {
-        k: v
-        for k, v in sections.items()
-        if k not in _DEF_EXCLUDED_SECTION_KEYS
-    }
+    return {k: v for k, v in sections.items() if k not in _DEF_EXCLUDED_SECTION_KEYS}
 
 
 def _process_ticker(ticker: str, ticker_client: object | None = None) -> bool:
     try:
         LOGGER.info("Fetching sections for %s", ticker)
-        sections = data_access.fetch_ticker_sections(
-            ticker, ticker_client=ticker_client
-        )
+        sections = data_access.fetch_ticker_sections(ticker, ticker_client=ticker_client)
 
         computed_metrics = metrics.compute_metrics(ticker, sections)
-        warnings = metrics.ensure_data_available(
-            ticker, _normalized_sections(sections), computed_metrics
-        )
+        warnings = metrics.ensure_data_available(ticker, _normalized_sections(sections), computed_metrics)
     except ValueError as exc:
         LOGGER.error("%s", exc)
         return False
@@ -66,13 +58,10 @@ def run(tickers: Iterable[str]) -> int:
             LOGGER.warning(
                 "Data source health check hit rate limit for %s (retry_after=%s); continuing with per-ticker fetch.",
                 health_status.rate_limit.host,
-                health_status.rate_limit.retry_after
-                or health_status.rate_limit.remaining,
+                health_status.rate_limit.retry_after or health_status.rate_limit.remaining,
             )
         else:
-            LOGGER.error(
-                "Data source unhealthy: %s", health_status.message or "health check failed"
-            )
+            LOGGER.error("Data source unhealthy: %s", health_status.message or "health check failed")
             return 1
 
     shared_client = data_access.get_batched_ticker_client(validated)

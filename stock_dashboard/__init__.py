@@ -5,6 +5,7 @@ leave ``stock_dashboard.data_access`` or siblings missing from ``sys.modules``.
 Heavy dependencies are imported lazily on first use, and any failures surface a
 Streamlit-friendly error instead of an opaque ``KeyError``.
 """
+
 import importlib
 import logging
 import sys
@@ -89,10 +90,7 @@ class _LazySubmodule(ModuleType):
 def _handle_import_error(module_name: str, exc: Exception) -> RuntimeError:
     """Return a descriptive error while surfacing a Streamlit-friendly message."""
 
-    message = (
-        f"Unable to load stock_dashboard.{module_name}. "
-        "Please refresh or try again later."
-    )
+    message = f"Unable to load stock_dashboard.{module_name}. Please refresh or try again later."
     try:
         st.error(message)
     except Exception:

@@ -32,9 +32,7 @@ class _SessionState(dict):
 
     def __setitem__(self, key, value):
         if key in getattr(self, "_locked_keys", set()):
-            raise RuntimeError(
-                f"Cannot assign to session_state['{key}'] after widget initialization"
-            )
+            raise RuntimeError(f"Cannot assign to session_state['{key}'] after widget initialization")
         super().__setitem__(key, value)
 
     def lock_key(self, key: str) -> None:
@@ -113,6 +111,11 @@ def _install_fake_streamlit(monkeypatch, fake_st: _FakeStreamlit):
 
 def _stub_defaults(monkeypatch, defaults: str = "AAPL,MSFT"):
     monkeypatch.setattr(data_access, "get_default_watchlist_string", lambda: defaults)
+    monkeypatch.setattr(
+        data_access,
+        "check_data_source_health",
+        lambda **_: data_access.DataSourceHealth(ok=True, host="fixture", latency_ms=0, headers={}),
+    )
 
 
 def test_watchlist_form_adds_valid_ticker(monkeypatch):
@@ -124,9 +127,7 @@ def test_watchlist_form_adds_valid_ticker(monkeypatch):
         "Remove selected": False,
         "Apply watchlist": True,
     }
-    fake_st.data_editor_value = pd.DataFrame(
-        {"Ticker": ["AAPL", "MSFT", "GOOD"], "Delete": [False, False, False]}
-    )
+    fake_st.data_editor_value = pd.DataFrame({"Ticker": ["AAPL", "MSFT", "GOOD"], "Delete": [False, False, False]})
 
     _install_fake_streamlit(monkeypatch, fake_st)
     _stub_defaults(monkeypatch)
@@ -158,9 +159,7 @@ def test_watchlist_form_skips_invalid_ticker(monkeypatch):
         "Remove selected": False,
         "Apply watchlist": True,
     }
-    fake_st.data_editor_value = pd.DataFrame(
-        {"Ticker": ["AAPL", "MSFT"], "Delete": [False, False]}
-    )
+    fake_st.data_editor_value = pd.DataFrame({"Ticker": ["AAPL", "MSFT"], "Delete": [False, False]})
 
     _install_fake_streamlit(monkeypatch, fake_st)
     _stub_defaults(monkeypatch)
@@ -191,9 +190,7 @@ def test_watchlist_form_removes_tickers(monkeypatch):
         "Remove selected": True,
         "Apply watchlist": True,
     }
-    fake_st.data_editor_value = pd.DataFrame(
-        {"Ticker": ["AAPL"], "Delete": [False]}
-    )
+    fake_st.data_editor_value = pd.DataFrame({"Ticker": ["AAPL"], "Delete": [False]})
 
     _install_fake_streamlit(monkeypatch, fake_st)
     _stub_defaults(monkeypatch)
@@ -224,9 +221,7 @@ def test_watchlist_respects_session_state_lock(monkeypatch):
         "Remove selected": False,
         "Apply watchlist": True,
     }
-    fake_st.data_editor_value = pd.DataFrame(
-        {"Ticker": ["TSLA", "NVDA"], "Delete": [False, False]}
-    )
+    fake_st.data_editor_value = pd.DataFrame({"Ticker": ["TSLA", "NVDA"], "Delete": [False, False]})
 
     _install_fake_streamlit(monkeypatch, fake_st)
     _stub_defaults(monkeypatch)
@@ -274,4 +269,3 @@ def test_watchlist_form_smoke_mode_renders(monkeypatch):
     assert "watchlist_form" in fake_st.forms
     assert any(call == ["STUB"] for call in validate_calls)
     assert displayed == ["STUB"]
-
