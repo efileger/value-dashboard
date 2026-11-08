@@ -206,3 +206,6 @@ regressions; they cannot guarantee that Yahoo will accept a shared hosting provi
 See [the data-provider assessment](docs/data-provider-assessment.md) for the underlying request-path
 defects, free-provider comparison, sources, and migration acceptance criteria. Tests now exercise
 the installed Yahooquery HTTP request builder and real response objects, including plain-text 429s.
+
+The [market-data provider decision record](docs/decisions/0001-market-data-provider.md) records the
+current decision, alternatives, and criteria for a future migration.
