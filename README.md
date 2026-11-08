@@ -40,7 +40,7 @@ This app lets you evaluate companies using key value investing principles — li
 Or build it yourself below
 
 ### Requirements
-- Python 3.9+
+- Python 3.11 (validated Dev/CI runtime)
 - `pip install -r requirements.txt`
 
 ### Run the App
@@ -49,9 +49,13 @@ streamlit run stock_dashboard.py
 ```
 
 ### Development
-- Install dev tools: `pip install -r requirements-dev.txt`
-- Run linting: `ruff check .`
-- Run tests: `pytest`
+- Install Python 3.11 dev tools: `pip install --require-hashes -r requirements-dev.txt`
+- Install workflow checker: `bash scripts/install-actionlint.sh`
+- Run shared pre-CI checks: `bash scripts/check.sh fast`
+- Run local server smoke: `bash scripts/check.sh smoke`
+- Install secret scanner: `bash scripts/install-gitleaks.sh`; then `bash scripts/check.sh secrets`
+- Audit locked runtime dependencies and emit SBOM: `bash scripts/check.sh audit`
+- Full gate mapping, setup, and remaining release controls: [Quality gates](docs/quality-gates.md)
 - Run the CLI headlessly (no Streamlit UI): `python -m stock_dashboard.cli --tickers AAPL,MSFT --verbose`
 - Deterministic CI/smoke runs: set `SMOKE_TEST=1` to use stubbed data and `YF_DISABLE_CACHE=1` to disable caching, e.g. `SMOKE_TEST=1 YF_DISABLE_CACHE=1 python -m stock_dashboard.cli --tickers AAPL`
 

@@ -61,94 +61,94 @@ jobs:
           source .venv/bin/activate
 
           cat > run_probe.py <<'PY'
-import json
-import os
-import subprocess
-import time
-from pathlib import Path
+          import json
+          import os
+          import subprocess
+          import time
+          from pathlib import Path
 
-tickers = os.environ.get("TICKERS", "AAPL")
-smoke_mode = os.environ.get("PROBE_SMOKE_MODE", "false").lower() == "true"
-timeout_seconds = int(os.environ.get("CLI_TIMEOUT", "45"))
+          tickers = os.environ.get("TICKERS", "AAPL")
+          smoke_mode = os.environ.get("PROBE_SMOKE_MODE", "false").lower() == "true"
+          timeout_seconds = int(os.environ.get("CLI_TIMEOUT", "45"))
 
-env = os.environ.copy()
-if smoke_mode:
-    env["SMOKE_TEST"] = "1"
-else:
-    env.pop("SMOKE_TEST", None)
+          env = os.environ.copy()
+          if smoke_mode:
+              env["SMOKE_TEST"] = "1"
+          else:
+              env.pop("SMOKE_TEST", None)
 
-env.setdefault("YF_DISABLE_CACHE", "1")
+          env.setdefault("YF_DISABLE_CACHE", "1")
 
-cmd = [
-    "python",
-    "-m",
-    "stock_dashboard.cli",
-    "--tickers",
-    tickers,
-    "--verbose",
-]
+          cmd = [
+              "python",
+              "-m",
+              "stock_dashboard.cli",
+              "--tickers",
+              tickers,
+              "--verbose",
+          ]
 
-started_at = time.time()
-stdout = ""
-stderr = ""
-outcome = "success"
-return_code = 0
+          started_at = time.time()
+          stdout = ""
+          stderr = ""
+          outcome = "success"
+          return_code = 0
 
-try:
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout_seconds,
-        env=env,
-    )
-    stdout = proc.stdout
-    stderr = proc.stderr
-    return_code = proc.returncode
-    if proc.returncode != 0:
-        outcome = "failure"
-except subprocess.TimeoutExpired as exc:
-    stdout = exc.stdout or ""
-    stderr = (exc.stderr or "") + f"\nProbe timed out after {timeout_seconds}s"
-    outcome = "timeout"
-    return_code = 124
+          try:
+              proc = subprocess.run(
+                  cmd,
+                  capture_output=True,
+                  text=True,
+                  timeout=timeout_seconds,
+                  env=env,
+              )
+              stdout = proc.stdout
+              stderr = proc.stderr
+              return_code = proc.returncode
+              if proc.returncode != 0:
+                  outcome = "failure"
+          except subprocess.TimeoutExpired as exc:
+              stdout = exc.stdout or ""
+              stderr = (exc.stderr or "") + f"\nProbe timed out after {timeout_seconds}s"
+              outcome = "timeout"
+              return_code = 124
 
-duration_ms = round((time.time() - started_at) * 1000)
+          duration_ms = round((time.time() - started_at) * 1000)
 
-log = Path("probe-output.log")
-log.write_text(
-    "\n".join(
-        [
-            f"Command: {' '.join(cmd)}",
-            f"Tickers: {tickers}",
-            f"Smoke mode: {smoke_mode}",
-            f"Started at: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(started_at))}",
-            f"Duration (ms): {duration_ms}",
-            "--- stdout ---",
-            stdout,
-            "--- stderr ---",
-            stderr,
-        ]
-    )
-)
+          log = Path("probe-output.log")
+          log.write_text(
+              "\n".join(
+                  [
+                      f"Command: {' '.join(cmd)}",
+                      f"Tickers: {tickers}",
+                      f"Smoke mode: {smoke_mode}",
+                      f"Started at: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(started_at))}",
+                      f"Duration (ms): {duration_ms}",
+                      "--- stdout ---",
+                      stdout,
+                      "--- stderr ---",
+                      stderr,
+                  ]
+              )
+          )
 
-report = {
-    "command": " ".join(cmd),
-    "tickers": tickers,
-    "smoke_mode": smoke_mode,
-    "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started_at)),
-    "duration_ms": duration_ms,
-    "return_code": return_code,
-    "outcome": outcome,
-}
+          report = {
+              "command": " ".join(cmd),
+              "tickers": tickers,
+              "smoke_mode": smoke_mode,
+              "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started_at)),
+              "duration_ms": duration_ms,
+              "return_code": return_code,
+              "outcome": outcome,
+          }
 
-Path("probe-report.json").write_text(json.dumps(report, indent=2))
+          Path("probe-report.json").write_text(json.dumps(report, indent=2))
 
-print(json.dumps(report, indent=2))
+          print(json.dumps(report, indent=2))
 
-if outcome != "success":
-    raise SystemExit(return_code)
-PY
+          if outcome != "success":
+              raise SystemExit(return_code)
+          PY
 
           python run_probe.py | tee probe-report-pretty.json
 
@@ -156,32 +156,32 @@ PY
         if: always()
         run: |
           python - <<'PY'
-import json
-import os
-from pathlib import Path
+          import json
+          import os
+          from pathlib import Path
 
-report = json.loads(Path("probe-report.json").read_text())
-log = Path("probe-output.log").read_text().strip()
-summary = f"""
-### Live Yahoo probe
-- Outcome: **{report['outcome']}**
-- Started: {report['started_at']} UTC
-- Duration: {report['duration_ms']} ms
-- Tickers: {report['tickers']}
-- Smoke mode: {report['smoke_mode']}
-- Return code: {report['return_code']}
+          report = json.loads(Path("probe-report.json").read_text())
+          log = Path("probe-output.log").read_text().strip()
+          summary = f"""
+          ### Live Yahoo probe
+          - Outcome: **{report['outcome']}**
+          - Started: {report['started_at']} UTC
+          - Duration: {report['duration_ms']} ms
+          - Tickers: {report['tickers']}
+          - Smoke mode: {report['smoke_mode']}
+          - Return code: {report['return_code']}
 
-<details>
-<summary>Probe output</summary>
+          <details>
+          <summary>Probe output</summary>
 
-```
-{log}
-```
-</details>
-"""
+          ```
+          {log}
+          ```
+          </details>
+          """
 
-Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(summary)
-PY
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(summary)
+          PY
 
       - name: Upload probe artifacts
         if: always()

@@ -6,10 +6,14 @@ from stock_dashboard import data_access, ui
 
 @pytest.fixture(autouse=True)
 def clear_caches():
+    data_access.HEALTH_CHECK_CACHE.clear()
+    data_access.RATE_LIMIT_COOLDOWNS.clear()
     data_access.CACHED_SECTIONS.clear()
     data_access.VALIDATE_TICKER_CACHE.clear()
     data_access.CACHED_TICKER_CLIENTS.clear()
     yield
+    data_access.HEALTH_CHECK_CACHE.clear()
+    data_access.RATE_LIMIT_COOLDOWNS.clear()
     data_access.CACHED_SECTIONS.clear()
     data_access.VALIDATE_TICKER_CACHE.clear()
     data_access.CACHED_TICKER_CLIENTS.clear()

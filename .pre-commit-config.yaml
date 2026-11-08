@@ -1,0 +1,15 @@
+repos:
+  - repo: local
+    hooks:
+      - id: quality
+        name: Shared Dev and CI quality checks
+        entry: bash scripts/check.sh fast
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: secrets
+        name: Gitleaks staged secrets
+        entry: bash scripts/check.sh staged-secrets
+        language: system
+        pass_filenames: false
+        always_run: true

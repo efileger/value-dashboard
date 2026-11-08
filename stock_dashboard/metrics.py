@@ -70,9 +70,7 @@ def resolve_critical_fields(
         "total debt": [("financial_data", "totalDebt")],
     }
 
-    return {
-        name: resolve_with_fallback(sections, chain) for name, chain in fallback_map.items()
-    }
+    return {name: resolve_with_fallback(sections, chain) for name, chain in fallback_map.items()}
 
 
 def validate_metrics(metrics: Mapping[str, Any], ticker: str):
@@ -119,9 +117,7 @@ def ensure_data_available(
 
     warnings["missing_fields"] = missing_fields
 
-    warnings["missing_metrics"] = [
-        name for name, value in metrics.items() if value is None
-    ]
+    warnings["missing_metrics"] = [name for name, value in metrics.items() if value is None]
 
     return {key: value for key, value in warnings.items() if value}
 
@@ -140,11 +136,22 @@ def compute_metrics(ticker: str, sections: Mapping[str, Mapping[str, Any]]):
 
     operating_cashflow = financial.get("operatingCashflow", None)
     cashflow_per_share = None
-    if can_derive_per_share and isinstance(operating_cashflow, (int, float)) and isinstance(shares_outstanding_val, (int, float)) and shares_outstanding_val > 0:
+    if (
+        can_derive_per_share
+        and isinstance(operating_cashflow, (int, float))
+        and isinstance(shares_outstanding_val, (int, float))
+        and shares_outstanding_val > 0
+    ):
         cashflow_per_share = operating_cashflow / shares_outstanding_val
 
     sales_per_share = financial.get("revenuePerShare", key_stats.get("revenuePerShare"))
-    if can_derive_per_share and sales_per_share is None and isinstance(total_revenue_val, (int, float)) and isinstance(shares_outstanding_val, (int, float)) and shares_outstanding_val > 0:
+    if (
+        can_derive_per_share
+        and sales_per_share is None
+        and isinstance(total_revenue_val, (int, float))
+        and isinstance(shares_outstanding_val, (int, float))
+        and shares_outstanding_val > 0
+    ):
         sales_per_share = total_revenue_val / shares_outstanding_val
 
     free_cash_flow = financial.get("freeCashflow", None)

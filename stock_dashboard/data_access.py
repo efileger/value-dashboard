@@ -18,9 +18,7 @@ from yahooquery import Ticker
 DEFAULT_WATCHLIST_PATH = Path(__file__).resolve().parent.parent / "watchlist.txt"
 DEFAULT_TICKERS_FALLBACK = "AAPL,MSFT,META"
 _DEFAULT_RATE_LIMIT_SECONDS = 60
-_DEFAULT_FUNDAMENTAL_TTL_SECONDS = int(
-    os.getenv("YF_FUNDAMENTAL_TTL_SECONDS", "21600")
-)
+_DEFAULT_FUNDAMENTAL_TTL_SECONDS = int(os.getenv("YF_FUNDAMENTAL_TTL_SECONDS", "21600"))
 _DEFAULT_PRICE_TTL_SECONDS = int(os.getenv("YF_PRICE_TTL_SECONDS", "300"))
 _CACHE_DISABLE_ENV_VAR = "YF_DISABLE_CACHE"
 _HEALTH_CHECK_CACHE_TTL_SECONDS = 15
@@ -52,9 +50,7 @@ class DataSourceHealth:
     headers: Mapping[str, Any]
     rate_limit: RateLimitError | None = None
     message: str | None = None
-    checked_at: datetime = field(
-        default_factory=lambda: datetime.now(tz=timezone.utc)
-    )
+    checked_at: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
 
 
 CACHED_SECTIONS: dict[tuple[str, str], tuple[datetime, Mapping[str, Any]]] = {}
@@ -126,9 +122,7 @@ def is_smoke_mode() -> bool:
     return str(value).lower() not in {"", "0", "false", "no"}
 
 
-def validate_tickers(
-    tickers: Iterable[str], ticker_cls: type[Ticker] = Ticker
-) -> list[str]:
+def validate_tickers(tickers: Iterable[str], ticker_cls: type[Ticker] = Ticker) -> list[str]:
     """Return a list of valid, uppercase ticker symbols.
 
     The function asks Yahoo Finance for quote metadata to filter out unknown
@@ -181,20 +175,14 @@ def validate_tickers(
     for ticker in normalized:
         section = _safe_section(quote_type_section, ticker)
         if section:
-            canonical = (
-                section.get("symbol")
-                or section.get("underlyingSymbol")
-                or ticker
-            )
+            canonical = section.get("symbol") or section.get("underlyingSymbol") or ticker
             _add_symbol(canonical)
         elif ticker in available_symbols:
             _add_symbol(ticker)
 
     if available_symbols and len(validated) < len(available_symbols):
         for symbol in available_symbols:
-            if symbol not in seen_validated and (
-                symbol in normalized or not validated
-            ):
+            if symbol not in seen_validated and (symbol in normalized or not validated):
                 _add_symbol(symbol)
 
     if can_use_cache:
@@ -203,17 +191,13 @@ def validate_tickers(
     return validated
 
 
-def get_batched_ticker_client(
-    tickers: Iterable[str], ticker_cls: type[Ticker] = Ticker
-) -> Any | None:
+def get_batched_ticker_client(tickers: Iterable[str], ticker_cls: type[Ticker] = Ticker) -> Any | None:
     """Return a shared yahooquery client for multiple tickers when available."""
 
     if is_smoke_mode():
         return None
 
-    normalized: tuple[str, ...] = tuple(
-        dict.fromkeys(ticker.upper() for ticker in tickers if ticker)
-    )
+    normalized: tuple[str, ...] = tuple(dict.fromkeys(ticker.upper() for ticker in tickers if ticker))
     if not normalized:
         return None
 
@@ -223,7 +207,8 @@ def get_batched_ticker_client(
         return cached_client
 
     try:
-        time.sleep(random.uniform(0.05, 0.15))
+        # Randomness only spreads requests; it does not protect secrets.
+        time.sleep(random.uniform(0.05, 0.15))  # nosec B311
         client = ticker_cls(normalized)
     except Exception:
         logger.exception("Unable to create batched ticker client")
@@ -338,9 +323,7 @@ def _record_rate_limit(rate_limit_error: RateLimitError, ticker: str | None = No
     resume_at = _utcnow() + timedelta(seconds=retry_after)
     RATE_LIMIT_COOLDOWNS[host] = resume_at
     rate_limit_error.remaining = retry_after
-    logger.info(
-        "Rate limit detected for host %s; retry after %ss", host, retry_after
-    )
+    logger.info("Rate limit detected for host %s; retry after %ss", host, retry_after)
     logger.error(
         "Rate limit recorded for %s: status_code=%s host=%s retry_after=%s",
         ticker or "unknown",
@@ -403,9 +386,7 @@ def _set_cached_health(status: DataSourceHealth) -> None:
 def _rate_limit_headers(headers: Mapping[str, Any]) -> Mapping[str, Any]:
     normalized = _normalize_headers(headers)
     extracted = {
-        key: value
-        for key, value in normalized.items()
-        if "rate" in str(key).lower() or "retry" in str(key).lower()
+        key: value for key, value in normalized.items() if "rate" in str(key).lower() or "retry" in str(key).lower()
     }
     return extracted or normalized
 
@@ -532,8 +513,7 @@ def resolve_company_name(ticker: str, quote_type=None, price=None, profile=None)
     )
 
 
-def _detect_buybacks(ticker_client: Any, key_stats: Mapping[str, Any],
-                     ticker: str | None = None) -> bool | None:
+def _detect_buybacks(ticker_client: Any, key_stats: Mapping[str, Any], ticker: str | None = None) -> bool | None:
     """Compare dated annual diluted shares, never infer shares from price history.
 
     Net dilution is a screen, not evidence of gross repurchase spending.
@@ -647,9 +627,15 @@ def fetch_ticker_sections(
                     "longName": f"{ticker} Demo Corp",
                 },
             ),
-            "price": cached_sections.get("price", {"shortName": f"{ticker} Demo",
-                "regularMarketPrice": 100.0, "regularMarketTime": _utcnow().isoformat(),
-                "currency": "USD"}),
+            "price": cached_sections.get(
+                "price",
+                {
+                    "shortName": f"{ticker} Demo",
+                    "regularMarketPrice": 100.0,
+                    "regularMarketTime": _utcnow().isoformat(),
+                    "currency": "USD",
+                },
+            ),
             "buybacks": cached_sections.get("buybacks", True),
             "demo": True,
             "cache_info": {"sections_cached": sorted(cache_hits)},
@@ -665,11 +651,7 @@ def fetch_ticker_sections(
 
         return result
 
-    missing_sections = [
-        section
-        for section in requested_sections
-        if section not in cached_sections
-    ]
+    missing_sections = [section for section in requested_sections if section not in cached_sections]
 
     core_section_names = [
         "summary_detail",
@@ -777,7 +759,8 @@ def fetch_ticker_sections(
     client_to_use = ticker_client
 
     if needs_network:
-        time.sleep(random.uniform(0.05, 0.2))
+        # Randomness only spreads requests; it does not protect secrets.
+        time.sleep(random.uniform(0.05, 0.2))  # nosec B311
         try:
             client_to_use = client_to_use or ticker_cls(ticker)
         except Exception as exc:  # noqa: BLE001
@@ -835,11 +818,7 @@ def fetch_ticker_sections(
         _set_cached_section(ticker, "buybacks", {"value": buybacks})
     else:
         buybacks_value = sections["buybacks"]
-        buybacks = (
-            buybacks_value.get("value")
-            if isinstance(buybacks_value, Mapping)
-            else buybacks_value
-        )
+        buybacks = buybacks_value.get("value") if isinstance(buybacks_value, Mapping) else buybacks_value
 
     served_from_cache = not needs_network
     cache_info = {

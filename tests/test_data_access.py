@@ -27,9 +27,7 @@ def test_safe_section_handles_series_name_match():
 
 
 def test_resolve_company_name_prefers_quote_type():
-    name = data_access.resolve_company_name(
-        "AAPL", quote_type={"longName": "Apple Inc."}, price={"longName": "Price"}
-    )
+    name = data_access.resolve_company_name("AAPL", quote_type={"longName": "Apple Inc."}, price={"longName": "Price"})
     assert name == "Apple Inc."
 
 
@@ -39,9 +37,7 @@ def test_resolve_company_name_uses_price_long_name_when_quote_type_missing():
 
 
 def test_resolve_company_name_uses_short_name_then_profile_then_ticker():
-    name = data_access.resolve_company_name(
-        "AAPL", quote_type={}, price={"shortName": "Short"}, profile={}
-    )
+    name = data_access.resolve_company_name("AAPL", quote_type={}, price={"shortName": "Short"}, profile={})
     assert name == "Short"
 
     name_profile = data_access.resolve_company_name(
@@ -54,6 +50,7 @@ def test_resolve_company_name_uses_short_name_then_profile_then_ticker():
 
 
 def test_load_watchlist_reads_default_uppercase(tmp_path, monkeypatch):
+    monkeypatch.setattr(data_access, "validate_tickers", lambda tickers: tickers)
     watchlist_file = tmp_path / "watchlist.txt"
     watchlist_file.write_text("aapl, msft\n nvda", encoding="utf-8")
     monkeypatch.setattr(data_access, "DEFAULT_WATCHLIST_PATH", watchlist_file)
@@ -69,6 +66,7 @@ def test_get_default_watchlist_string_uses_fallback(monkeypatch, tmp_path):
 
 
 def test_get_default_watchlist_string_joins_entries(tmp_path, monkeypatch):
+    monkeypatch.setattr(data_access, "validate_tickers", lambda tickers: tickers)
     watchlist_file = tmp_path / "watchlist.txt"
     watchlist_file.write_text("AAPL,ADYEY,AMZN", encoding="utf-8")
     monkeypatch.setattr(data_access, "DEFAULT_WATCHLIST_PATH", watchlist_file)
@@ -198,9 +196,7 @@ def test_fetch_ticker_sections_skips_during_cooldown(monkeypatch):
     now = datetime(2024, 1, 1, tzinfo=timezone.utc)
     monkeypatch.setattr(data_access, "_utcnow", lambda: now)
     data_access.RATE_LIMIT_COOLDOWNS.clear()
-    data_access.RATE_LIMIT_COOLDOWNS["query1.finance.yahoo.com"] = now + timedelta(
-        seconds=30
-    )
+    data_access.RATE_LIMIT_COOLDOWNS["query1.finance.yahoo.com"] = now + timedelta(seconds=30)
 
     class CountingTicker:
         called = False
@@ -290,10 +286,15 @@ def test_buyback_screen_uses_dated_diluted_shares_for_correct_ticker():
     class Client:
         def income_statement(self, **kwargs):
             assert kwargs == {"frequency": "a", "trailing": False}
-            return pd.DataFrame({
-                "asOfDate": ["2025-12-31", "2024-12-31", "2025-12-31"],
-                "DilutedAverageShares": [90, 100, 10000], "periodType": ["12M"] * 3,
-            }, index=pd.Index(["A", "A", "B"], name="symbol"))
+            return pd.DataFrame(
+                {
+                    "asOfDate": ["2025-12-31", "2024-12-31", "2025-12-31"],
+                    "DilutedAverageShares": [90, 100, 10000],
+                    "periodType": ["12M"] * 3,
+                },
+                index=pd.Index(["A", "A", "B"], name="symbol"),
+            )
+
     assert data_access._detect_buybacks(Client(), {"sharesOutstanding": 90}, "A") is True
     assert data_access._detect_buybacks(Client(), {}, "MISSING") is None
     assert data_access._detect_buybacks(Client(), {}, "B") is None
@@ -301,6 +302,7 @@ def test_buyback_screen_uses_dated_diluted_shares_for_correct_ticker():
 
 def test_cached_section_provenance_does_not_refresh_on_read(monkeypatch):
     from datetime import datetime, timedelta, timezone
+
     now = datetime(2026, 11, 8, tzinfo=timezone.utc)
     monkeypatch.delenv("SMOKE_TEST", raising=False)
     monkeypatch.delenv("YF_DISABLE_CACHE", raising=False)

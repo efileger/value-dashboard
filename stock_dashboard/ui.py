@@ -93,9 +93,7 @@ def _render_action_summary(actions_by_ticker: Mapping[str, str]) -> None:
 
     detail_lines = []
     for action in action_order:
-        tickers = sorted(
-            ticker for ticker, ticker_action in actions_by_ticker.items() if ticker_action == action
-        )
+        tickers = sorted(ticker for ticker, ticker_action in actions_by_ticker.items() if ticker_action == action)
         if tickers:
             detail_lines.append(f"- **{action}**: {', '.join(tickers)}")
 
@@ -207,9 +205,7 @@ def display_stock(
     health_status: data_access.DataSourceHealth | None = None,
 ) -> str | None:
     ticker_cls = ticker_cls or data_access.Ticker
-    sections = data_access.fetch_ticker_sections(
-        ticker, ticker_cls=ticker_cls, ticker_client=ticker_client
-    )
+    sections = data_access.fetch_ticker_sections(ticker, ticker_cls=ticker_cls, ticker_client=ticker_client)
 
     error_info = sections.get("error") or {}
     rate_limit = error_info.get("rate_limit")
@@ -218,9 +214,7 @@ def display_stock(
         remaining_seconds = rate_limit.remaining or rate_limit.retry_after or 0
         host = rate_limit.host or "Yahoo Finance"
         details = _format_error_details(error_info) or "Rate limit detected"
-        message = (
-            f"Rate limit detected from {host}. Please wait {remaining_seconds} seconds before retrying."
-        )
+        message = f"Rate limit detected from {host}. Please wait {remaining_seconds} seconds before retrying."
         if retry_after:
             message += f" Retry-After header indicates {retry_after} seconds."
         if details and details not in message:
@@ -234,9 +228,7 @@ def display_stock(
             logging.getLogger(__name__).exception("Unable to display rate-limit toast")
         return None
 
-    core_sections = {
-        k: v for k, v in sections.items() if k not in {"buybacks", "error", "cache_info", "demo"}
-    }
+    core_sections = {k: v for k, v in sections.items() if k not in {"buybacks", "error", "cache_info", "demo"}}
 
     if all(not section for section in core_sections.values()):
         message_parts: list[str] = []
@@ -260,10 +252,7 @@ def display_stock(
     if cache_info.get("served_from_cache"):
         st.caption("💾 Served fully from cache")
     elif cache_sections:
-        st.caption(
-            "💾 Partially served from cache: "
-            + ", ".join(sorted(cache_sections))
-        )
+        st.caption("💾 Partially served from cache: " + ", ".join(sorted(cache_sections)))
     elif cache_info.get("cache_disabled"):
         st.caption("💾 Cache disabled for this request")
 
@@ -272,19 +261,14 @@ def display_stock(
         warnings = ensure_data_available(ticker, core_sections, metrics)
     except ValueError as exc:
         fallback_message = (
-            "No response returned from Yahoo Finance. This may indicate a "
-            "temporary data-source outage or rate limit."
+            "No response returned from Yahoo Finance. This may indicate a temporary data-source outage or rate limit."
         )
         warning_message = _format_error_details(error_info) or str(exc)
         if not error_info and fallback_message not in warning_message:
-            warning_message = (
-                f"{warning_message}. {fallback_message}" if warning_message else fallback_message
-            )
+            warning_message = f"{warning_message}. {fallback_message}" if warning_message else fallback_message
         st.warning(warning_message)
         _render_error_diagnostics(ticker, error_info, health_status)
-        raise ValueError(
-            f"No data available for {ticker} (reason: {warning_message})"
-        ) from exc
+        raise ValueError(f"No data available for {ticker} (reason: {warning_message})") from exc
 
     profile = core_sections.get("asset_profile", {})
     key_stats = core_sections.get("key_stats", {})
@@ -310,14 +294,10 @@ def display_stock(
         missing_metrics = warnings.get("missing_metrics", [])
 
         if missing_fields:
-            warning_messages.append(
-                f"Missing required fields for {ticker}: {', '.join(missing_fields)}"
-            )
+            warning_messages.append(f"Missing required fields for {ticker}: {', '.join(missing_fields)}")
 
         if missing_metrics:
-            warning_messages.append(
-                f"Missing metrics for {ticker}: {', '.join(missing_metrics)}"
-            )
+            warning_messages.append(f"Missing metrics for {ticker}: {', '.join(missing_metrics)}")
 
         for message in warning_messages:
             st.warning(message)
@@ -331,8 +311,10 @@ def display_stock(
     st.markdown(f"**Total Revenue ({financial_currency})**: {total_revenue}")
     st.markdown(f"**Total Cash ({financial_currency})**: {total_cash}")
     st.markdown(f"**Total Debt ({financial_currency})**: {total_debt}")
-    st.caption(f"Cash flow, sales per share and FCF use reported financial currency: {financial_currency}. "
-               "Totals may differ from the quote currency and must not be combined without reconciliation.")
+    st.caption(
+        f"Cash flow, sales per share and FCF use reported financial currency: {financial_currency}. "
+        "Totals may differ from the quote currency and must not be combined without reconciliation."
+    )
     st.markdown(f"**Shares Outstanding**: {shares_outstanding}")
 
     df, pass_count, red_count = _render_metric_rows(metrics)
@@ -345,8 +327,10 @@ def display_stock(
     decision = _resolve_suggested_action(pass_count, red_count)
 
     st.markdown(f"### Screen result: **{decision}**")
-    st.caption("Screen checks describe reported fundamentals. Use the deployment assessment above "
-               "for valuation and purchase eligibility.")
+    st.caption(
+        "Screen checks describe reported fundamentals. Use the deployment assessment above "
+        "for valuation and purchase eligibility."
+    )
     return decision
 
 
@@ -355,9 +339,7 @@ def _render_health_banner(health_status: data_access.DataSourceHealth) -> None:
     warn_fn = getattr(st, "warning", None) or getattr(st, "info", None)
 
     if health_status.ok:
-        latency = (
-            f"{health_status.latency_ms:.0f} ms" if health_status.latency_ms else "n/a"
-        )
+        latency = f"{health_status.latency_ms:.0f} ms" if health_status.latency_ms else "n/a"
         details = f"Host: {health_status.host or 'unknown'} | Latency: {latency}"
         if health_status.headers:
             details += f" | Rate headers: {health_status.headers}"
@@ -367,10 +349,7 @@ def _render_health_banner(health_status: data_access.DataSourceHealth) -> None:
 
     details = health_status.message or "Data source unavailable"
     if health_status.rate_limit:
-        details = (
-            _format_error_details({"rate_limit": health_status.rate_limit})
-            or details
-        )
+        details = _format_error_details({"rate_limit": health_status.rate_limit}) or details
     if warn_fn:
         warn_fn(f"Data source health check failed: {details}")
 
@@ -382,9 +361,7 @@ def main():
     st.title("📊 Value Investing Dashboard")
 
     default_watchlist = data_access.get_default_watchlist_string()
-    default_ticker_list = [
-        ticker.strip().upper() for ticker in default_watchlist.split(",") if ticker.strip()
-    ]
+    default_ticker_list = [ticker.strip().upper() for ticker in default_watchlist.split(",") if ticker.strip()]
     validated_defaults = data_access.validate_tickers(default_ticker_list)
 
     if "watchlist" not in st.session_state:
@@ -413,9 +390,7 @@ def main():
     )
 
     if data_access.is_smoke_mode():
-        st.info(
-            "Smoke test mode enabled. Skipping live ticker validation and data fetches."
-        )
+        st.info("Smoke test mode enabled. Skipping live ticker validation and data fetches.")
         st.markdown(
             "This lightweight page confirms the server is running without reaching "
             "out to Yahoo Finance. Disable `SMOKE_TEST` to load live ticker data."
@@ -429,11 +404,7 @@ def main():
             selection_tab, table_tab = st.tabs(["Select", "Table"])
 
             all_options = sorted(
-                dict.fromkeys(
-                    st.session_state.recent_tickers
-                    + validated_defaults
-                    + st.session_state.watchlist
-                )
+                dict.fromkeys(st.session_state.recent_tickers + validated_defaults + st.session_state.watchlist)
             )
 
             with selection_tab:
@@ -448,15 +419,17 @@ def main():
                     )
 
                 with col_actions:
-                    add_value = st.text_input(
-                        "Add Ticker",
-                        key="add_ticker_input",
-                        placeholder="e.g. NVDA",
-                        help="Validated against Yahoo Finance symbols",
-                    ).strip().upper()
-                    validated_add = (
-                        data_access.validate_tickers([add_value]) if add_value else []
+                    add_value = (
+                        st.text_input(
+                            "Add Ticker",
+                            key="add_ticker_input",
+                            placeholder="e.g. NVDA",
+                            help="Validated against Yahoo Finance symbols",
+                        )
+                        .strip()
+                        .upper()
                     )
+                    validated_add = data_access.validate_tickers([add_value]) if add_value else []
                     if add_value:
                         if validated_add:
                             st.caption("✅ Looks valid")
@@ -494,9 +467,7 @@ def main():
                     disabled=["Ticker"],
                 )
 
-            apply_clicked = st.form_submit_button(
-                "Apply watchlist", use_container_width=True, type="primary"
-            )
+            apply_clicked = st.form_submit_button("Apply watchlist", use_container_width=True, type="primary")
 
             new_watchlist = list(dict.fromkeys(chip_selection or []))
 
@@ -504,9 +475,7 @@ def main():
                 for ticker in validated_add:
                     if ticker not in new_watchlist:
                         new_watchlist.append(ticker)
-                st.session_state.recent_tickers = list(
-                    dict.fromkeys(validated_add + st.session_state.recent_tickers)
-                )
+                st.session_state.recent_tickers = list(dict.fromkeys(validated_add + st.session_state.recent_tickers))
 
             if remove_clicked and chip_selection:
                 selected_set = set(chip_selection)
@@ -514,8 +483,7 @@ def main():
 
             if not edited_table.empty:
                 new_watchlist = [
-                    row.Ticker for row in edited_table.itertuples(index=False)
-                    if not row.Delete and row.Ticker
+                    row.Ticker for row in edited_table.itertuples(index=False) if not row.Delete and row.Ticker
                 ]
 
             deduped_watchlist = list(dict.fromkeys(new_watchlist))
@@ -531,9 +499,7 @@ def main():
         st.markdown("</div>", unsafe_allow_html=True)
 
     tickers = data_access.validate_tickers(st.session_state.watchlist)
-    health_status = data_access.check_data_source_health(
-        force_refresh=watchlist_changed
-    )
+    health_status = data_access.check_data_source_health(force_refresh=watchlist_changed)
     _render_health_banner(health_status)
 
     deployment_ui.render(tickers, load_market=health_status.ok or bool(health_status.rate_limit))
