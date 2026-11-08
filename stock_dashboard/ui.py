@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from . import data_access
+from . import data_access, deployment_ui
 from .logging import configure_logging
 from .metrics import (
     compute_metrics,
@@ -46,7 +46,8 @@ def _render_metric_rows(metrics: dict[str, Any]) -> tuple[pd.DataFrame, int, int
                 or "P/S" in metric
                 or "EV / EBITDA" in metric
             ):
-                status = "✅" if value <= threshold else "❌"
+                valid = value >= 0 if metric == "Debt/Equity" else value > 0
+                status = "✅" if valid and value <= threshold else "❌"
             elif isinstance(threshold, (int, float)):
                 status = "✅" if value >= threshold else "❌"
         elif isinstance(value, bool):
@@ -70,24 +71,24 @@ def _render_metric_rows(metrics: dict[str, Any]) -> tuple[pd.DataFrame, int, int
 
 def _resolve_suggested_action(pass_count: int, red_count: int) -> str:
     if pass_count >= 12:
-        return "Buy"
+        return "Strong screen"
     if red_count >= 10:
-        return "Sell"
-    return "Hold"
+        return "Weak screen"
+    return "Mixed screen"
 
 
 def _render_action_summary(actions_by_ticker: Mapping[str, str]) -> None:
     if not actions_by_ticker:
         return
 
-    action_order = ["Buy", "Hold", "Sell"]
+    action_order = ["Strong screen", "Mixed screen", "Weak screen"]
     action_counts = {action: 0 for action in action_order}
     for action in actions_by_ticker.values():
         if action in action_counts:
             action_counts[action] += 1
 
     summary_parts = [f"{action}: {action_counts[action]}" for action in action_order]
-    st.markdown(f"### 🧭 Watchlist Action Snapshot ({len(actions_by_ticker)} tickers)")
+    st.markdown(f"### 🧭 Watchlist Screening Snapshot ({len(actions_by_ticker)} tickers)")
     st.markdown(" | ".join(summary_parts))
 
     detail_lines = []
@@ -227,7 +228,7 @@ def display_stock(
             logging.getLogger(__name__).exception("Unable to display rate-limit toast")
         return None
 
-    core_sections = {k: v for k, v in sections.items() if k not in {"buybacks", "error"}}
+    core_sections = {k: v for k, v in sections.items() if k not in {"buybacks", "error", "cache_info", "demo"}}
 
     if all(not section for section in core_sections.values()):
         message_parts: list[str] = []
@@ -304,10 +305,16 @@ def display_stock(
     st.subheader(f"{ticker} - {company_name}")
     st.markdown(f"**Industry**: {industry}")
     st.markdown(f"**Sector**: {sector}")
-    st.markdown(f"**Market Cap**: {market_cap}")
-    st.markdown(f"**Total Revenue**: {total_revenue}")
-    st.markdown(f"**Total Cash**: {total_cash}")
-    st.markdown(f"**Total Debt**: {total_debt}")
+    quote_currency = price.get("currency", "currency unknown")
+    financial_currency = financial.get("financialCurrency", "currency unknown")
+    st.markdown(f"**Market Cap ({quote_currency})**: {market_cap}")
+    st.markdown(f"**Total Revenue ({financial_currency})**: {total_revenue}")
+    st.markdown(f"**Total Cash ({financial_currency})**: {total_cash}")
+    st.markdown(f"**Total Debt ({financial_currency})**: {total_debt}")
+    st.caption(
+        f"Cash flow, sales per share and FCF use reported financial currency: {financial_currency}. "
+        "Totals may differ from the quote currency and must not be combined without reconciliation."
+    )
     st.markdown(f"**Shares Outstanding**: {shares_outstanding}")
 
     df, pass_count, red_count = _render_metric_rows(metrics)
@@ -319,7 +326,11 @@ def display_stock(
     decision = "Hold"
     decision = _resolve_suggested_action(pass_count, red_count)
 
-    st.markdown(f"### 📌 Suggested Action: **{decision}**")
+    st.markdown(f"### Screen result: **{decision}**")
+    st.caption(
+        "Screen checks describe reported fundamentals. Use the deployment assessment above "
+        "for valuation and purchase eligibility."
+    )
     return decision
 
 
@@ -385,108 +396,113 @@ def main():
             "out to Yahoo Finance. Disable `SMOKE_TEST` to load live ticker data."
         )
 
-    st.markdown(f"Default watchlist: `{default_watchlist}`")
-    st.markdown('<div class="watchlist-form">', unsafe_allow_html=True)
-    with st.form("watchlist_form", border=True, enter_to_submit=False):
-        st.markdown("#### Watchlist Builder", help="Curate tickers before loading data")
-        selection_tab, table_tab = st.tabs(["Select", "Table"])
+    with st.expander("Watchlist: choose businesses to assess"):
+        st.markdown(f"Default watchlist: `{default_watchlist}`")
+        st.markdown('<div class="watchlist-form">', unsafe_allow_html=True)
+        with st.form("watchlist_form", border=True, enter_to_submit=False):
+            st.markdown("#### Watchlist Builder", help="Curate tickers before loading data")
+            selection_tab, table_tab = st.tabs(["Select", "Table"])
 
-        all_options = sorted(
-            dict.fromkeys(st.session_state.recent_tickers + validated_defaults + st.session_state.watchlist)
-        )
+            all_options = sorted(
+                dict.fromkeys(st.session_state.recent_tickers + validated_defaults + st.session_state.watchlist)
+            )
 
-        with selection_tab:
-            col_select, col_actions = st.columns([1.5, 1], gap="medium")
-            with col_select:
-                chip_selection = st.multiselect(
-                    "Quick select (recent & defaults):",
-                    all_options,
-                    default=st.session_state.watchlist,
-                    key="chip_select",
-                    placeholder="Tap to pick tickers",
-                )
-
-            with col_actions:
-                add_value = (
-                    st.text_input(
-                        "Add Ticker",
-                        key="add_ticker_input",
-                        placeholder="e.g. NVDA",
-                        help="Validated against Yahoo Finance symbols",
+            with selection_tab:
+                col_select, col_actions = st.columns([1.5, 1], gap="medium")
+                with col_select:
+                    chip_selection = st.multiselect(
+                        "Quick select (recent & defaults):",
+                        all_options,
+                        default=st.session_state.watchlist,
+                        key="chip_select",
+                        placeholder="Tap to pick tickers",
                     )
-                    .strip()
-                    .upper()
+
+                with col_actions:
+                    add_value = (
+                        st.text_input(
+                            "Add Ticker",
+                            key="add_ticker_input",
+                            placeholder="e.g. NVDA",
+                            help="Validated against Yahoo Finance symbols",
+                        )
+                        .strip()
+                        .upper()
+                    )
+                    validated_add = data_access.validate_tickers([add_value]) if add_value else []
+                    if add_value:
+                        if validated_add:
+                            st.caption("✅ Looks valid")
+                        else:
+                            st.caption("❌ Ticker not recognized")
+
+                    add_clicked = st.form_submit_button(
+                        "Add to watchlist",
+                        use_container_width=True,
+                        type="primary",
+                        disabled=bool(add_value) and not validated_add,
+                    )
+                    remove_clicked = st.form_submit_button(
+                        "Remove selected",
+                        use_container_width=True,
+                        help="Drop currently selected tickers",
+                    )
+
+            with table_tab:
+                watchlist_df = pd.DataFrame(
+                    {
+                        "Ticker": st.session_state.watchlist,
+                        "Delete": [False] * len(st.session_state.watchlist),
+                    }
                 )
-                validated_add = data_access.validate_tickers([add_value]) if add_value else []
-                if add_value:
-                    if validated_add:
-                        st.caption("✅ Looks valid")
-                    else:
-                        st.caption("❌ Ticker not recognized")
-
-                add_clicked = st.form_submit_button(
-                    "Add to watchlist",
-                    use_container_width=True,
-                    type="primary",
-                    disabled=bool(add_value) and not validated_add,
-                )
-                remove_clicked = st.form_submit_button(
-                    "Remove selected",
-                    use_container_width=True,
-                    help="Drop currently selected tickers",
+                edited_table = st.data_editor(
+                    watchlist_df,
+                    hide_index=True,
+                    key="watchlist_editor",
+                    column_config={
+                        "Delete": st.column_config.CheckboxColumn(
+                            "Delete", help="Remove this ticker from the watchlist"
+                        )
+                    },
+                    disabled=["Ticker"],
                 )
 
-        with table_tab:
-            watchlist_df = pd.DataFrame(
-                {
-                    "Ticker": st.session_state.watchlist,
-                    "Delete": [False] * len(st.session_state.watchlist),
-                }
-            )
-            edited_table = st.data_editor(
-                watchlist_df,
-                hide_index=True,
-                key="watchlist_editor",
-                column_config={
-                    "Delete": st.column_config.CheckboxColumn("Delete", help="Remove this ticker from the watchlist")
-                },
-                disabled=["Ticker"],
-            )
+            apply_clicked = st.form_submit_button("Apply watchlist", use_container_width=True, type="primary")
 
-        apply_clicked = st.form_submit_button("Apply watchlist", use_container_width=True, type="primary")
+            new_watchlist = list(dict.fromkeys(chip_selection or []))
 
-        new_watchlist = list(dict.fromkeys(chip_selection or []))
+            if add_clicked and validated_add:
+                for ticker in validated_add:
+                    if ticker not in new_watchlist:
+                        new_watchlist.append(ticker)
+                st.session_state.recent_tickers = list(dict.fromkeys(validated_add + st.session_state.recent_tickers))
 
-        if add_clicked and validated_add:
-            for ticker in validated_add:
-                if ticker not in new_watchlist:
-                    new_watchlist.append(ticker)
-            st.session_state.recent_tickers = list(dict.fromkeys(validated_add + st.session_state.recent_tickers))
+            if remove_clicked and chip_selection:
+                selected_set = set(chip_selection)
+                new_watchlist = [t for t in new_watchlist if t not in selected_set]
 
-        if remove_clicked and chip_selection:
-            selected_set = set(chip_selection)
-            new_watchlist = [t for t in new_watchlist if t not in selected_set]
+            if not edited_table.empty:
+                new_watchlist = [
+                    row.Ticker for row in edited_table.itertuples(index=False) if not row.Delete and row.Ticker
+                ]
 
-        if not edited_table.empty:
-            new_watchlist = [
-                row.Ticker for row in edited_table.itertuples(index=False) if not row.Delete and row.Ticker
-            ]
+            deduped_watchlist = list(dict.fromkeys(new_watchlist))
+            if deduped_watchlist != st.session_state.watchlist:
+                st.session_state.watchlist = deduped_watchlist
+                watchlist_changed = True
+            elif deduped_watchlist != previous_watchlist:
+                watchlist_changed = True
 
-        deduped_watchlist = list(dict.fromkeys(new_watchlist))
-        if deduped_watchlist != st.session_state.watchlist:
-            st.session_state.watchlist = deduped_watchlist
-            watchlist_changed = True
-        elif deduped_watchlist != previous_watchlist:
-            watchlist_changed = True
+            if apply_clicked or add_clicked or remove_clicked:
+                st.caption("Watchlist updated")
 
-        if apply_clicked or add_clicked or remove_clicked:
-            st.caption("Watchlist updated")
-
-    st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     tickers = data_access.validate_tickers(st.session_state.watchlist)
     health_status = data_access.check_data_source_health(force_refresh=watchlist_changed)
     _render_health_banner(health_status)
+
+    deployment_ui.render(tickers, load_market=health_status.ok or bool(health_status.rate_limit))
 
     bypass_health_gate = bool(os.getenv("PYTEST_CURRENT_TEST"))
 

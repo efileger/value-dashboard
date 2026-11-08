@@ -104,6 +104,17 @@ def _set_cached_section(ticker: str, section: str, payload: Mapping[str, Any]) -
     CACHED_SECTIONS[(ticker, section)] = (expires_at, payload)
 
 
+def _section_fetched_at(ticker: str, names: Iterable[str]) -> dict[str, str]:
+    """Preserve original receipt time on cache hits, distinct from report/quote dates."""
+    result = {}
+    for name in names:
+        cached = CACHED_SECTIONS.get((ticker, name))
+        if cached:
+            received = cached[0] - timedelta(seconds=_section_ttl_seconds(name))
+            result[name] = received.isoformat()
+    return result
+
+
 def is_smoke_mode() -> bool:
     """Return True when the smoke-test fast path is enabled."""
 
@@ -502,17 +513,36 @@ def resolve_company_name(ticker: str, quote_type=None, price=None, profile=None)
     )
 
 
-def _detect_buybacks(ticker_client: Any, key_stats: Mapping[str, Any]) -> bool | None:
-    """Return True when historical share counts indicate buybacks."""
+def _detect_buybacks(ticker_client: Any, key_stats: Mapping[str, Any], ticker: str | None = None) -> bool | None:
+    """Compare dated annual diluted shares, never infer shares from price history.
 
+    Net dilution is a screen, not evidence of gross repurchase spending.
+    """
+    income_statement = getattr(ticker_client, "income_statement", None)
+    if not callable(income_statement):
+        return None
     try:
-        hist_data = ticker_client.history(period="5y")
-        if not hist_data.empty and "close" in hist_data.columns:
-            share_counts = key_stats.get("sharesOutstanding")
-            if isinstance(share_counts, list) and len(share_counts) > 1:
-                return share_counts[-1] < share_counts[0]
+        history = income_statement(frequency="a", trailing=False)
+        if not isinstance(history, pd.DataFrame) or history.empty:
+            return None
+        if ticker and ticker in history.index:
+            history = history.loc[[ticker]]
+        elif ticker:
+            return None
+        if not {"asOfDate", "DilutedAverageShares"}.issubset(history.columns):
+            return None
+        history = history.copy()
+        history["asOfDate"] = pd.to_datetime(history["asOfDate"], errors="coerce")
+        history["DilutedAverageShares"] = pd.to_numeric(history["DilutedAverageShares"], errors="coerce")
+        if "periodType" in history:
+            history = history[history["periodType"] == "12M"]
+        history = history.dropna(subset=["asOfDate", "DilutedAverageShares"])
+        history = history[history["DilutedAverageShares"] > 0]
+        history = history.sort_values("asOfDate").drop_duplicates("asOfDate")
+        if len(history) >= 2:
+            return bool(history.iloc[-1]["DilutedAverageShares"] < history.iloc[-2]["DilutedAverageShares"])
     except Exception:
-        logger.exception("Unable to retrieve historical share counts")
+        logger.exception("Unable to retrieve historical diluted share counts")
         return None
 
     return None
@@ -597,8 +627,17 @@ def fetch_ticker_sections(
                     "longName": f"{ticker} Demo Corp",
                 },
             ),
-            "price": cached_sections.get("price", {"shortName": f"{ticker} Demo"}),
+            "price": cached_sections.get(
+                "price",
+                {
+                    "shortName": f"{ticker} Demo",
+                    "regularMarketPrice": 100.0,
+                    "regularMarketTime": _utcnow().isoformat(),
+                    "currency": "USD",
+                },
+            ),
             "buybacks": cached_sections.get("buybacks", True),
+            "demo": True,
             "cache_info": {"sections_cached": sorted(cache_hits)},
         }
 
@@ -712,6 +751,7 @@ def fetch_ticker_sections(
             return {}, details
 
     sections: dict[str, Any] = {**cached_sections}
+    receipt_times = _section_fetched_at(ticker, cache_hits)
     error_info: dict[str, Any] = {}
 
     needs_network = missing_sections or "buybacks" not in sections
@@ -763,6 +803,8 @@ def fetch_ticker_sections(
 
         section, section_error = _fetch_section(client_to_use, attr_name)
         sections[key] = section
+        if section:
+            receipt_times[key] = _utcnow().isoformat()
         _set_cached_section(ticker, key, section)
         if section_error and not error_info:
             error_info = section_error
@@ -771,7 +813,7 @@ def fetch_ticker_sections(
         _record_rate_limit(rate_limit, ticker)
 
     if "buybacks" not in sections:
-        buybacks = _detect_buybacks(client_to_use, sections.get("key_stats", {}))
+        buybacks = _detect_buybacks(client_to_use, sections.get("key_stats", {}), ticker)
         sections["buybacks"] = buybacks
         _set_cached_section(ticker, "buybacks", {"value": buybacks})
     else:
@@ -783,6 +825,7 @@ def fetch_ticker_sections(
         "sections_cached": sorted(cache_hits),
         "served_from_cache": served_from_cache,
         "cache_disabled": not _cache_enabled(),
+        "section_fetched_at": receipt_times,
     }
 
     logger.info(

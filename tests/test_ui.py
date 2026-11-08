@@ -101,9 +101,9 @@ def test_display_stock_includes_http_error_context(streamlit_spy, http_error_tic
 
 
 def test_resolve_suggested_action_thresholds():
-    assert ui._resolve_suggested_action(pass_count=12, red_count=0) == "Buy"
-    assert ui._resolve_suggested_action(pass_count=6, red_count=10) == "Sell"
-    assert ui._resolve_suggested_action(pass_count=8, red_count=4) == "Hold"
+    assert ui._resolve_suggested_action(pass_count=12, red_count=0) == "Strong screen"
+    assert ui._resolve_suggested_action(pass_count=6, red_count=10) == "Weak screen"
+    assert ui._resolve_suggested_action(pass_count=8, red_count=4) == "Mixed screen"
 
 
 def test_render_action_summary_renders_counts_and_groups(monkeypatch):
@@ -116,18 +116,20 @@ def test_render_action_summary_renders_counts_and_groups(monkeypatch):
 
     ui._render_action_summary(
         {
-            "MSFT": "Buy",
-            "AAPL": "Hold",
-            "TSLA": "Sell",
-            "NVDA": "Buy",
+            "MSFT": "Strong screen",
+            "AAPL": "Mixed screen",
+            "TSLA": "Weak screen",
+            "NVDA": "Strong screen",
         }
     )
 
-    assert any("Watchlist Action Snapshot (4 tickers)" in msg for msg in markdown_calls)
-    assert any("Buy: 2" in msg and "Hold: 1" in msg and "Sell: 1" in msg for msg in markdown_calls)
-    assert any("**Buy**: MSFT, NVDA" in msg for msg in markdown_calls)
-    assert any("**Hold**: AAPL" in msg for msg in markdown_calls)
-    assert any("**Sell**: TSLA" in msg for msg in markdown_calls)
+    assert any("Watchlist Screening Snapshot (4 tickers)" in msg for msg in markdown_calls)
+    assert any(
+        "Strong screen: 2" in msg and "Mixed screen: 1" in msg and "Weak screen: 1" in msg for msg in markdown_calls
+    )
+    assert any("**Strong screen**: MSFT, NVDA" in msg for msg in markdown_calls)
+    assert any("**Mixed screen**: AAPL" in msg for msg in markdown_calls)
+    assert any("**Weak screen**: TSLA" in msg for msg in markdown_calls)
 
 
 def test_render_action_summary_noop_when_empty(monkeypatch):
@@ -137,3 +139,11 @@ def test_render_action_summary_noop_when_empty(monkeypatch):
     ui._render_action_summary({})
 
     assert not markdown_calls
+
+
+@pytest.mark.parametrize("value", [-5, 0, 30])
+def test_nonpositive_or_expensive_valuation_ratios_do_not_pass(streamlit_spy, value):
+    df, passed, failed = ui._render_metric_rows({"P/E Ratio": value, "EV / EBITDA": value})
+    assert passed == 0
+    assert failed == 2
+    assert set(df["Status"]) == {"❌"}

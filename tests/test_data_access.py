@@ -280,3 +280,36 @@ def test_fetch_ticker_sections_serves_from_cache(monkeypatch):
     assert CountingTicker.calls == 1
     assert result_one["cache_info"]["served_from_cache"] is False
     assert result_two["cache_info"]["served_from_cache"] is True
+
+
+def test_buyback_screen_uses_dated_diluted_shares_for_correct_ticker():
+    class Client:
+        def income_statement(self, **kwargs):
+            assert kwargs == {"frequency": "a", "trailing": False}
+            return pd.DataFrame(
+                {
+                    "asOfDate": ["2025-12-31", "2024-12-31", "2025-12-31"],
+                    "DilutedAverageShares": [90, 100, 10000],
+                    "periodType": ["12M"] * 3,
+                },
+                index=pd.Index(["A", "A", "B"], name="symbol"),
+            )
+
+    assert data_access._detect_buybacks(Client(), {"sharesOutstanding": 90}, "A") is True
+    assert data_access._detect_buybacks(Client(), {}, "MISSING") is None
+    assert data_access._detect_buybacks(Client(), {}, "B") is None
+
+
+def test_cached_section_provenance_does_not_refresh_on_read(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime(2026, 11, 8, tzinfo=timezone.utc)
+    monkeypatch.delenv("SMOKE_TEST", raising=False)
+    monkeypatch.delenv("YF_DISABLE_CACHE", raising=False)
+    monkeypatch.setattr(data_access, "_utcnow", lambda: now)
+    data_access._set_cached_section("A", "price", {"price": 100})
+    before = data_access._section_fetched_at("A", ["price"])
+    monkeypatch.setattr(data_access, "_utcnow", lambda: now + timedelta(seconds=30))
+    assert data_access._get_cached_section("A", "price") is not None
+    assert data_access._section_fetched_at("A", ["price"]) == before
+    assert before["price"] == now.isoformat()

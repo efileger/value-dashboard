@@ -1338,9 +1338,16 @@ numpy==2.4.6 \
     --hash=sha256:f74a575920ab21fe304421a3fc28793d82e299cae9eccb37084e9fc7f3617c20
     # via
     #   -c requirements.txt
+    #   numpy-financial
     #   pandas
     #   pydeck
     #   streamlit
+numpy-financial==1.0.0 \
+    --hash=sha256:bae534b357516f12258862d1f0181d911032d0467f215bfcd1c264b4da579047 \
+    --hash=sha256:f84341bc62b2485d5604a73d5fac7e91975b4b9cd5f4a5a9cf608902ea00cb40
+    # via
+    #   -c requirements.txt
+    #   -r requirements.in
 packageurl-python==0.17.6 \
     --hash=sha256:1252ce3a102372ca6f86eb968e16f9014c4ba511c5c37d95a7f023e2ca6e5c25 \
     --hash=sha256:31a85c2717bc41dd818f3c62908685ff9eebcb68588213745b14a6ee9e7df7c9

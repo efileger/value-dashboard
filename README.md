@@ -25,7 +25,10 @@ This app lets you evaluate companies using key value investing principles — li
 - Enter any stock tickers (e.g. `AAPL, MSFT, NVDA`)
 - View 20+ fundamental metrics with pass/fail scoring
 - Hoverable tooltips for key investing concepts
-- Snapshot scorecard with Buy / Hold / Sell recommendation
+- Cash deployment planner with a ranked top five, explicit purchase gates and suggested dollar amounts
+- Bear/base/bull scenario values, annualized returns and quarterly review dates
+- Screening scorecard kept separate from purchase eligibility
+- Portable private deployment profiles and purchase-tranche tracking
 - Auto-formatted financials (cash, debt, FCF, etc.)
 - Dark mode interface and mobile-friendly layout
 - Optional watchlist and persistent ticker memory (via browser)
@@ -69,7 +72,7 @@ streamlit run stock_dashboard.py
 - Dividend Yield  
 - Current & Quick Ratios  
 - Cash Flow/Share, Sales/Share, Free Cash Flow  
-- 4-Year EPS & Sales Growth  
+- Reported EPS & Sales Growth (Yahoo growth fields, not four-year CAGR)
 - Debt/Equity, PEG Ratio  
 - Insider Ownership  
 - Buybacks (Yes/No)  
@@ -83,12 +86,92 @@ This dashboard was built to support a **FIRE-focused, empirically driven approac
 
 ---
 
-## 📌 Future Improvements
+## Valuation-gated cash deployment
 
-- Stock screener mode  
-- Sector/industry filtering  
-- Export watchlist  
-- Integration with personal portfolio tools (e.g. Notion, Sheets)
+The dashboard answers “where should this cash go today?” using reviewed business assumptions and
+current Yahoo quotes. Set **Cash to deploy today** (for example $5,000) and **Maximum businesses this
+review** (1 for the best candidate, or up to 10 for a larger budget). The first candidate receives up
+to its permitted tranche, then additional candidates receive cash in rank order. The app may leave
+some or all of the request unallocated; it never forces an investment to meet a deadline.
+
+### First review
+
+1. Open **Cash, portfolio and review settings**. Enter the available cash/SGOV pool, its protected
+   reserve, portfolio value including that cash, and the portfolio snapshot date. Use a consistent
+   account or household scope. IRA reserves and accessible taxable reserves are separate decisions.
+   Refresh the cash alternative yield; the initial 3.83% is an unverified conversation example.
+2. Open **Review business valuations and position limits** for each watchlist company. Enter
+   normalized EPS, dividends, bear/base/bull growth and exit P/E assumptions, holding period, required
+   return, current position value, maximum weight and the maximum addition for this deployment.
+   Add the financial period, review date, source links, normalization rationale and thesis failure
+   condition. Confirm the latest results support the thesis and verify quote currency / listed share
+   or ADR units. Low-confidence cases stay in research rather than receiving an allocation.
+3. Run **Rank deployment opportunities**. Read the best candidate and **Top five qualifying
+   opportunities**. The full watchlist shows every exclusion, including incomplete business cases.
+4. After a real purchase, **Record executed purchase**. This updates the cash pool, holding value and
+   tranche history. Viewing or rerunning the app never records a purchase. A partial fill consumes
+   that review's tranche; manually reconcile actual holdings and cash at the next review.
+5. **Download deployment profile for next quarter** after changes. Import it in the next session.
+   The assessment is also downloadable as CSV or JSON. Do not commit personal portfolio exports.
+
+The initial profile retains the conversation's qualitative research cautions for all 13 businesses.
+Only PEP, MSFT and TSM have numeric starting scenarios: EPS 8.38 / 17.75 / 15.00, flat dividends
+5.92 / 3.92 / 4.32, growth ranges 3–5% / 10–15% / 10–15%, exit P/E 18 / 25 / 20, and return
+hurdles 10% / 10% / 12%. The base case uses the midpoint growth. Addition caps are $7,500 / $10,000 /
+$10,000; the balance of a $35,000 pool remains unassigned. **These are unverified drafts from the
+conversation, not current verified fair values or approved purchases.** Review dates are blank,
+confidence starts Low and approvals start off. Other businesses need numeric assumptions.
+
+### Model and gates
+
+This first model discounts flat annual dividends and terminal EPS × exit P/E. `numpy-financial`
+calculates NPV and IRR. All scenarios use the same required return; bear/base/bull growth and multiples
+must be ordered. All returns are nominal and before investor taxes, withholding, fees and future FX
+changes. This earnings scenario model is not a full cash-flow valuation. Reconcile capex, dilution,
+nonrecurring gains, debt and settlement cash in the business case; leave it unapproved when EPS is
+not a defensible valuation basis. Yahoo trailing EPS and growth are references, not normalized forecasts.
+
+- Discount = `1 - price / conservative scenario value`. The conservative scenario, rather than the
+  optimistic upper value, sets the gate. Initial / second / third / confirmation tranches require
+  15% / 25% / 35% / 15% discounts. The fourth tranche also needs a later financial period than the first.
+- Conservative annual return must exceed the greater of the company's required return and current
+  cash yield + the configurable spread (default 4 percentage points).
+- Rank qualifying businesses by conservative annual return, then conservative discount, confidence,
+  available portfolio headroom and ticker for deterministic ties. There is no opaque weighted score.
+  Unknown and failing cases have no purchase rank; their blockers remain visible.
+- Each allocation is capped by 25% of the company's addition cap, remaining cap, portfolio headroom
+  (`maximum weight × portfolio value - position value`), remaining request and unreserved cash.
+  Prices and dollar amounts do not imply an order or a whole-share quantity.
+- Only one tranche per business review date. A price gap through multiple thresholds does not release
+  multiple tranches. Repeated runs preserve this limit using recorded executions. After four tranches,
+  use **Archive plan and begin a fresh review** to retain history, preserve cash and holdings and
+  clear business approvals for the next plan. Changing price alone does not reset it.
+- Business reviews expire after 95 days by default (configurable downwards). A newer Yahoo-reported
+  quarter blocks purchases sooner. Financial periods older than 200 days need a fresh report. Review
+  material news between visits; thesis failures are not automatically monitored.
+- Quote timestamps must be known, nonfuture and at most four calendar days old to allow weekends.
+  A data error blocks recommendations even with cached values. The portfolio snapshot must be within
+  30 days. Inputs display their currencies; original Yahoo receipt timestamps survive cache hits and
+  are separate from actual quote and financial report dates. No automatic FX conversion is performed:
+  USD deployment requires reviewed per-listed-share USD inputs and a USD quote.
+- Unused requested cash remains unallocated. A six-month-old plan prompts a deliberate review of
+  continued waiting versus ordinary DCA. Nothing is automatically bought or scheduled.
+
+### Profile storage
+
+By default, assumptions and holdings stay in the Streamlit session; **they do not survive a new
+session unless exported/imported**. No personal file is shared across visitors. For a private,
+single-user installation with a durable disk, optionally set
+`VALUATION_PROFILE_PATH=/private/path/deployment-profile.json`. Saves use atomic replacement with
+private file permissions. Do not enable a shared profile path on a public/multi-user deployment.
+A hosted ephemeral filesystem is not durable storage. JSON profiles are versioned and validated on
+import; a profile with missing approvals remains ineligible.
+
+The screen also fixes the mislabeled four-year growth fields, key-statistics P/B lookup, nonpositive
+valuation-ratio passes and the buyback extraction. The buyback check now compares dated annual diluted
+average share counts (net share reduction), rather than treating price history as share history.
+Cross-currency or unknown-currency totals are not divided into derived per-share screen metrics.
+Dividends do not get a standalone bonus in deployment ranking.
 
 ---
 
@@ -97,6 +180,7 @@ This dashboard was built to support a **FIRE-focused, empirically driven approac
 - [Streamlit](https://streamlit.io/)  
 - [yahooquery](https://pypi.org/project/yahooquery/)  
 - [Pandas](https://pandas.pydata.org/)
+- [numpy-financial](https://numpy.org/numpy-financial/) for NPV and annual return calculations
 
 ---
 

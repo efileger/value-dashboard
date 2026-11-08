@@ -13,7 +13,7 @@ def test_watchlist_page_renders_and_runs_again(monkeypatch):
     assert "Value Investing Dashboard" in app.title[0].value
     assert app.session_state["watchlist"]
     assert app.dataframe
-    assert any("Watchlist Action Snapshot" in element.value for element in app.markdown)
+    assert any("Watchlist Screening Snapshot" in element.value for element in app.markdown)
 
     app.run()
     assert not app.exception
