@@ -111,7 +111,7 @@ jobs:
           set -euo pipefail
           bash scripts/check.sh secrets
 
-  lint-and-test:
+  fast-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -154,7 +154,7 @@ jobs:
 
   dev-deploy:
     name: Dev deploy smoke
-    needs: [lint-and-test, dependency-audit, secret-scan]
+    needs: [fast-checks, dependency-audit, secret-scan]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -223,3 +223,28 @@ jobs:
             echo "Marking deployment ${deployment_id} as inactive"
             gh api repos/${REPO}/deployments/${deployment_id}/statuses -f state=inactive >/dev/null
           done
+
+  lint-and-test:
+    # Preserve the status already required by main branch protection.
+    name: lint-and-test
+    if: always()
+    needs: [fast-checks, dependency-audit, secret-scan, dev-deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Require every quality gate to pass
+        env:
+          GATE_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import sys
+
+          results = json.loads(os.environ["GATE_RESULTS"])
+          failures = {name: job["result"] for name, job in results.items() if job["result"] != "success"}
+          if failures:
+              print(f"Quality gates did not pass: {failures}", file=sys.stderr)
+              sys.exit(1)
+          print("All required quality gates passed")
+          PYTHON

@@ -4,7 +4,8 @@ Assessment: 2026-11-08. Application: one public, read-only Streamlit dashboard a
 with Yahoo Finance access, in-process caches, and a checked-in watchlist. No database,
 owned HTTP API, authentication, infrastructure definitions, or container deployment is
 present in this repository. Hosting is linked as Streamlit Community Cloud in README;
-its deployment configuration and GitHub branch rules are not available in this checkout.
+its deployment configuration is not available in this checkout. GitHub branch metadata
+was subsequently read while preparing the PR (see enforcement below).
 
 ## Reference and appropriate scope
 
@@ -48,7 +49,7 @@ published and required checks are configured. Local passing checks alone are not
 | Security integration | No auth or owned API | Test configuration, input handling and diagnostics; add authorization tests if login/private data is introduced | Scoped; do not add irrelevant auth tooling |
 | Artifact and promotion | No build-once deployable artifact or promotion workflow | OCI image pinned by digest, GHCR, SBOM, artifact attestation, runtime-only smoke and promote same digest | Missing; next delivery tranche |
 | Production verification | No repo-owned production gate or rollback | Release health/synthetic checks, prior-digest rollback, uptime/error/latency SLOs and deploy metadata | Missing; hosting integration needed |
-| Branch rules / definitive verdict | README states intended rules, actual rules unverified | Require CI and CodeQL checks on latest merge candidate; prevent bypass/force pushes; one release job depends on all gates | Verify externally; not established by workflow YAML |
+| Branch rules / definitive verdict | README states intended rules, actual rules unverified | Require CI and CodeQL checks on latest merge candidate; prevent bypass/force pushes; one release job depends on all gates | Main requires `lint-and-test` plus dependency/security checks; aggregate gate added; admin bypass remains |
 
 ## Shared installation and commands
 
@@ -152,3 +153,18 @@ passed the health/homepage smoke. The repaired live-probe workflow was exercised
 stubbed data through report and summary generation; no webhook was sent. SCA found
 no known vulnerabilities and generated a CycloneDX inventory of 43 runtime components.
 GitHub CI has not run these changes until a PR is opened.
+
+## CI enforcement
+
+The `CI` workflow independently installs hash-locked tools and invokes the same shared
+commands as Dev. The existing required `lint-and-test` status is an aggregate: it runs
+with `if: always()` and fails unless fast checks, dependency audit, secret scan and the
+runtime-only Dev smoke all succeed. Failure, cancellation or skipped prerequisites do
+not turn the aggregate green. The local pre-commit hook is convenience, not CI evidence.
+
+GitHub main-branch metadata confirms protection requires `lint-and-test`,
+`Dependency security audit`, `gitleaks` and `CodeQL` with their configured app identities.
+Its reported enforcement level is `non_admins`: administrators can bypass checks. No
+additional rulesets were returned. The integration cannot read/change the full protection
+configuration (administration permission denied); enabling administrator enforcement and
+verifying review/strict-up-to-date settings remain repository-owner configuration tasks.
