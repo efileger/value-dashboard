@@ -66,3 +66,26 @@ def test_ensure_data_available_accepts_market_cap_fallback(market_cap_section, f
     warnings = metrics.ensure_data_available("AAPL", base_sections, {"P/E Ratio": 20.0})
 
     assert not warnings.get("missing_fields")
+
+
+def test_correct_growth_labels_and_pb_module():
+    computed = metrics.compute_metrics("TEST", {
+        "financial_data": {"revenueGrowth": .10, "earningsGrowth": .20},
+        "key_stats": {"priceToBook": 3.5}, "summary_detail": {"priceToBook": 9},
+    })
+    assert computed["P/B Ratio"] == 3.5
+    assert computed["Reported Sales Growth (%)"] == .10
+    assert computed["Reported EPS Growth (%)"] == .20
+    assert not any("4 Yr" in name for name in computed)
+
+
+@pytest.mark.parametrize("financial_currency", [None, "TWD", "USD"])
+def test_derived_per_share_fields_require_matching_known_currencies(financial_currency):
+    computed = metrics.compute_metrics("ADR", {
+        "financial_data": {"financialCurrency": financial_currency, "operatingCashflow": 1000,
+                           "totalRevenue": 2000},
+        "price": {"currency": "USD"}, "key_stats": {"sharesOutstanding": 10},
+        "summary_detail": {"trailingPE": 20},
+    })
+    assert computed["Cash Flow/Share"] == (100 if financial_currency == "USD" else None)
+    assert computed["Sales/Share"] == (200 if financial_currency == "USD" else None)

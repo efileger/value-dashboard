@@ -30,3 +30,8 @@ htmlcov/
 # Streamlit
 .streamlit/
 
+
+# Private deployment exports / profiles
+deployment-profile*.json
+deployment-assessment*.json
+deployment-assessment*.csv

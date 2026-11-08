@@ -14,7 +14,7 @@ from .logging import configure_logging
 LOGGER = logging.getLogger(__name__)
 
 
-_DEF_EXCLUDED_SECTION_KEYS = {"buybacks", "error", "cache_info"}
+_DEF_EXCLUDED_SECTION_KEYS = {"buybacks", "error", "cache_info", "demo"}
 
 
 def _parse_tickers(raw: str) -> list[str]:

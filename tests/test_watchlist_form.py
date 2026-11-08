@@ -74,6 +74,9 @@ class _FakeStreamlit:
     def error(self, *_args, **__):
         return None
 
+    def expander(self, *_, **__):
+        return _DummyContext()
+
     def form(self, name, *_, **__):
         self.forms.append(name)
         return _DummyContext()
@@ -109,6 +112,7 @@ class _FakeStreamlit:
 
 def _install_fake_streamlit(monkeypatch, fake_st: _FakeStreamlit):
     monkeypatch.setattr(ui, "st", fake_st)
+    monkeypatch.setattr(ui.deployment_ui, "render", lambda *args, **kwargs: None)
 
 
 def _stub_defaults(monkeypatch, defaults: str = "AAPL,MSFT"):

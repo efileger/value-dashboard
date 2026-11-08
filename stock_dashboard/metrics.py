@@ -13,8 +13,8 @@ thresholds = {
     "Quick Ratio": 1,
     "Cash Flow/Share": 0,
     "Sales/Share": 0,
-    "4 Yr Sales Growth (%)": 5,
-    "4 Yr EPS Growth (%)": 5,
+    "Reported Sales Growth (%)": 5,
+    "Reported EPS Growth (%)": 5,
     "Operating Margin (%)": 10,
     "Debt/Equity": 100,
     "Free Cash Flow": 0,
@@ -32,7 +32,7 @@ tooltips = {
     "Dividend Yield (%)": "Graham recommends ONLY to invest in well known companies with solid div yields.",
     "Insider Ownership (%)": "Higher is better",
     "P/E Ratio": "Lower is better. P/E less than 5 year avg = good sign",
-    "Buybacks": "Indicates if the company is actively buying back shares",
+    "Buybacks": "Net reduction in annual diluted average shares; includes issuance and dilution effects",
 }
 
 
@@ -132,17 +132,19 @@ def compute_metrics(ticker: str, sections: Mapping[str, Mapping[str, Any]]):
     summary = sections.get("summary_detail", {})
     financial = sections.get("financial_data", {})
     key_stats = sections.get("key_stats", {})
+    quote_currency = sections.get("price", {}).get("currency")
+    can_derive_per_share = bool(quote_currency) and financial.get("financialCurrency") == quote_currency
 
     total_revenue_val = financial.get("totalRevenue", None)
     shares_outstanding_val = key_stats.get("sharesOutstanding", None)
 
     operating_cashflow = financial.get("operatingCashflow", None)
     cashflow_per_share = None
-    if isinstance(operating_cashflow, (int, float)) and isinstance(shares_outstanding_val, (int, float)) and shares_outstanding_val != 0:
+    if can_derive_per_share and isinstance(operating_cashflow, (int, float)) and isinstance(shares_outstanding_val, (int, float)) and shares_outstanding_val > 0:
         cashflow_per_share = operating_cashflow / shares_outstanding_val
 
-    sales_per_share = key_stats.get("revenuePerShare", None)
-    if sales_per_share is None and isinstance(total_revenue_val, (int, float)) and isinstance(shares_outstanding_val, (int, float)) and shares_outstanding_val != 0:
+    sales_per_share = financial.get("revenuePerShare", key_stats.get("revenuePerShare"))
+    if can_derive_per_share and sales_per_share is None and isinstance(total_revenue_val, (int, float)) and isinstance(shares_outstanding_val, (int, float)) and shares_outstanding_val > 0:
         sales_per_share = total_revenue_val / shares_outstanding_val
 
     free_cash_flow = financial.get("freeCashflow", None)
@@ -156,15 +158,15 @@ def compute_metrics(ticker: str, sections: Mapping[str, Mapping[str, Any]]):
             "Net Profit Margin (%)": financial.get("profitMargins", None),
             "ROE (%)": financial.get("returnOnEquity", None),
             "P/E Ratio": summary.get("trailingPE", None),
-            "P/B Ratio": summary.get("priceToBook", None),
+            "P/B Ratio": key_stats.get("priceToBook", summary.get("priceToBook")),
             "P/S Ratio": summary.get("priceToSalesTrailing12Months", None),
             "Dividend Yield (%)": summary.get("dividendYield", None),
             "Current Ratio": financial.get("currentRatio", None),
             "Quick Ratio": financial.get("quickRatio", None),
             "Cash Flow/Share": cashflow_per_share,
             "Sales/Share": sales_per_share,
-            "4 Yr Sales Growth (%)": financial.get("revenueGrowth", None),
-            "4 Yr EPS Growth (%)": financial.get("earningsGrowth", None),
+            "Reported Sales Growth (%)": financial.get("revenueGrowth", None),
+            "Reported EPS Growth (%)": financial.get("earningsGrowth", None),
             "Operating Margin (%)": financial.get("operatingMargins", None),
             "Debt/Equity": financial.get("debtToEquity", None),
             "Free Cash Flow": free_cash_flow,
