@@ -106,8 +106,9 @@ some or all of the request unallocated; it never forces an investment to meet a 
    Add the financial period, review date, source links, normalization rationale and thesis failure
    condition. Confirm the latest results support the thesis and verify quote currency / listed share
    or ADR units. Low-confidence cases stay in research rather than receiving an allocation.
-3. Run **Rank deployment opportunities**. Read the best candidate and **Top five qualifying
-   opportunities**. The full watchlist shows every exclusion, including incomplete business cases.
+3. Run **Rank deployment opportunities**. Read the strongest modeled target and **Top five deployment
+   targets**, including businesses that fail purchase gates. The full watchlist shows the complete
+   ranking and purchase blockers, including incomplete business cases.
 4. After a real purchase, **Record executed purchase**. This updates the cash pool, holding value and
    tranche history. Viewing or rerunning the app never records a purchase. A partial fill consumes
    that review's tranche; manually reconcile actual holdings and cash at the next review.
@@ -136,9 +137,12 @@ not a defensible valuation basis. Yahoo trailing EPS and growth are references, 
   15% / 25% / 35% / 15% discounts. The fourth tranche also needs a later financial period than the first.
 - Conservative annual return must exceed the greater of the company's required return and current
   cash yield + the configurable spread (default 4 percentage points).
-- Rank qualifying businesses by conservative annual return, then conservative discount, confidence,
-  available portfolio headroom and ticker for deterministic ties. There is no opaque weighted score.
-  Unknown and failing cases have no purchase rank; their blockers remain visible.
+- Rank all comparable business cases by conservative annual return, then conservative discount,
+  confidence, available portfolio headroom and ticker for deterministic ties. Purchase gates do not
+  filter or reorder this ranking; they only control suggested dollar allocations. Stale, unreviewed
+  and otherwise blocked cases retain their reasons beside the rank. Businesses with insufficient
+  model inputs remain visible as unranked rather than receiving an invented ranking. The strongest
+  modeled target and top five remain visible even when the suggested deployment is $0.
 - Each allocation is capped by 25% of the company's addition cap, remaining cap, portfolio headroom
   (`maximum weight × portfolio value - position value`), remaining request and unreserved cash.
   Prices and dollar amounts do not imply an order or a whole-share quantity.
