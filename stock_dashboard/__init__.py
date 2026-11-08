@@ -6,6 +6,7 @@ Heavy dependencies are imported lazily on first use, and any failures surface a
 Streamlit-friendly error instead of an opaque ``KeyError``.
 """
 import importlib
+import logging
 import sys
 from types import ModuleType
 from typing import Any
@@ -13,7 +14,6 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 from yahooquery import Ticker
-
 
 _LAZY_MODULES: dict[str, str] = {
     "data_access": "stock_dashboard.data_access",
@@ -43,6 +43,7 @@ _ATTR_TO_MODULE: dict[str, str] = {
 __all__ = [
     "DEFAULT_TICKERS_FALLBACK",
     "DEFAULT_WATCHLIST_PATH",
+    "RateLimitError",
     "Ticker",
     "_safe_section",
     "compute_metrics",
@@ -56,7 +57,6 @@ __all__ = [
     "main",
     "metrics",
     "pd",
-    "RateLimitError",
     "resolve_company_name",
     "st",
     "thresholds",
@@ -79,7 +79,7 @@ class _LazySubmodule(ModuleType):
         sys.modules[self.__dict__["_fq_name"]] = module
         return module
 
-    def __getattr__(self, item: str) -> Any:  # noqa: D401 - deliberate passthrough
+    def __getattr__(self, item: str) -> Any:
         """Proxy attribute access to the lazily loaded module."""
 
         module = self._load()
@@ -97,7 +97,7 @@ def _handle_import_error(module_name: str, exc: Exception) -> RuntimeError:
         st.error(message)
     except Exception:
         # Streamlit is not available or configured; fall back to raising.
-        pass
+        logging.getLogger(__name__).exception("Unable to display import error in Streamlit")
     return RuntimeError(f"{message}\nOriginal error: {exc!r}")
 
 
@@ -109,7 +109,7 @@ def _load_module(module_name: str) -> ModuleType:
             sys.modules.pop(fq_name, None)
             try:
                 module = importlib.import_module(fq_name)
-            except Exception as exc:  # noqa: BLE001 - propagate wrapped error
+            except Exception as exc:
                 raise _handle_import_error(module_name, exc) from exc
         if module is not None:
             sys.modules[fq_name] = module
@@ -118,7 +118,7 @@ def _load_module(module_name: str) -> ModuleType:
 
     try:
         module = importlib.import_module(fq_name)
-    except Exception as exc:  # noqa: BLE001 - propagate wrapped error
+    except Exception as exc:
         raise _handle_import_error(module_name, exc) from exc
 
     sys.modules.setdefault(fq_name, module)

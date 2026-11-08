@@ -5,11 +5,11 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from typing import Any, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any
 
 from . import data_access, metrics
 from .logging import configure_logging
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ def _process_ticker(ticker: str, ticker_client: object | None = None) -> bool:
         warnings = metrics.ensure_data_available(
             ticker, _normalized_sections(sections), computed_metrics
         )
-    except ValueError as exc:  # noqa: BLE001
+    except ValueError as exc:
         LOGGER.error("%s", exc)
         return False
 

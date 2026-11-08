@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pandas as pd
 
 from stock_dashboard import data_access, ui
@@ -22,7 +24,7 @@ class _SessionState(dict):
     def __getattr__(self, item):
         try:
             return self[item]
-        except KeyError as exc:  # noqa: B904
+        except KeyError as exc:
             raise AttributeError(item) from exc
 
     def __setattr__(self, key, value):
@@ -62,15 +64,12 @@ class _FakeStreamlit:
 
     def info(self, message, *_, **__):
         self.info_messages.append(message)
-        return None
 
     def markdown(self, message, *_, **__):
         self.markdowns.append(message)
-        return None
 
     def caption(self, message, *_, **__):
         self.captions.append(message)
-        return None
 
     def error(self, *_args, **__):
         return None

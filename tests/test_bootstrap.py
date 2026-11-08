@@ -1,11 +1,10 @@
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import time
+from pathlib import Path
 
 import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STREAMLIT_CLI = shutil.which("streamlit")

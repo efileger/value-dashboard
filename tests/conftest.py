@@ -1,8 +1,7 @@
 import pandas as pd
 import pytest
 
-from stock_dashboard import data_access
-import stock_dashboard.ui as ui
+from stock_dashboard import data_access, ui
 
 
 @pytest.fixture(autouse=True)
@@ -35,23 +34,18 @@ def streamlit_spy(monkeypatch):
 
     def capture_dataframe(df, **kwargs):
         captured["df"] = df
-        return None
 
     def capture_warning(message, *args, **kwargs):
         captured["warnings"].append(message)
-        return None
 
     def capture_info(message, *args, **kwargs):
         captured["info"].append(message)
-        return None
 
     def capture_caption(message, *args, **kwargs):
         captured["captions"].append(message)
-        return None
 
     def capture_json(payload, *args, **kwargs):
         captured["json_calls"].append(payload)
-        return None
 
     def capture_expander(label, *args, **kwargs):
         captured["expanders"].append(label)
@@ -70,7 +64,6 @@ def streamlit_spy(monkeypatch):
 
     def capture_toast(message, *args, **kwargs):
         captured["toasts"].append(message)
-        return None
 
     for func in ["subheader", "markdown", "error"]:
         monkeypatch.setattr(ui.st, func, noop)

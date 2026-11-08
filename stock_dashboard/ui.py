@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import logging
 import os
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -227,7 +230,7 @@ def display_stock(
             st.toast(message)
         except Exception:
             # Toast not available in some Streamlit versions; banner is sufficient.
-            pass
+            logging.getLogger(__name__).exception("Unable to display rate-limit toast")
         return None
 
     core_sections = {
@@ -266,7 +269,7 @@ def display_stock(
     try:
         metrics = compute_metrics(ticker, sections)
         warnings = ensure_data_available(ticker, core_sections, metrics)
-    except ValueError as exc:  # noqa: BLE001
+    except ValueError as exc:
         fallback_message = (
             "No response returned from Yahoo Finance. This may indicate a "
             "temporary data-source outage or rate limit."
@@ -561,6 +564,7 @@ def main():
             if decision:
                 actions_by_ticker[ticker] = decision
         except Exception as e:
+            logging.getLogger(__name__).exception("Unable to display ticker %s", ticker)
             st.error(f"Error loading {ticker}: {e}")
 
     _render_action_summary(actions_by_ticker)
