@@ -13,6 +13,7 @@ import streamlit as st
 
 from . import data_access
 from . import deployment_profile as profiles
+from .diagnostics import build_report
 from .valuation import Assumptions, Policy, deployment, parse_date, to_dict
 
 
@@ -227,6 +228,33 @@ def render(tickers: list[str], load_market: bool = True) -> None:
     results, retained = deployment(tickers, assumptions, sections, policy, profile["purchases"])
     eligible = [r for r in results if r.eligible]
     ranked = [r for r in results if r.rank is not None]
+    report = build_report(tickers, sections, assumptions, results)
+    summary = report["summary"]
+    st.caption(
+        f"Data check: {summary['quotes_available']}/{summary['tickers']} quotes available · "
+        f"{summary['provider_errors']} provider errors · "
+        f"{summary['scenarios_calculated']}/{summary['tickers']} valuation scenarios calculated"
+    )
+    st.info(
+        "Prices and reported financials come from Yahoo. Normalized EPS, business review dates, "
+        "the financial period you reviewed, thesis confirmation and valuation confidence are business-case "
+        "inputs you maintain. Blank scenario values can mean those inputs are missing, even when market "
+        "data arrived successfully. PEP/MSFT/TSM initially use unverified conversation examples."
+    )
+    with st.expander("Data diagnostics: provider issues vs business-case setup"):
+        st.dataframe(pd.DataFrame(report["rows"]), hide_index=True, width="stretch")
+        st.caption(
+            "Missing provider fields do not by themselves prove rate limiting. Reported EPS is "
+            "a reference and is not automatically substituted for normalized earnings. "
+            "Diagnostics make no extra requests and omit raw payloads, credentials and portfolio values."
+        )
+        st.download_button(
+            "Download data diagnostics (JSON)",
+            json.dumps(report, indent=2, allow_nan=False),
+            "data-diagnostics.json",
+            "application/json",
+        )
+    logging.getLogger(__name__).info("Data availability summary: %s", json.dumps(summary, sort_keys=True))
     proposed = sum(r.allocation for r in results)
     st.markdown(f"**{policy.account} · Proposed today: ${proposed:,.2f} · Unallocated request: ${retained:,.2f}**")
     started = parse_date(policy.plan_started_on)

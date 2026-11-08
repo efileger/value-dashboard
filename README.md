@@ -213,3 +213,19 @@ the installed Yahooquery HTTP request builder and real response objects, includi
 
 The [market-data provider decision record](docs/decisions/0001-market-data-provider.md) records the
 current decision, alternatives, and criteria for a future migration.
+
+### Simple data diagnostics
+
+The deployment view shows quote availability, provider-error counts and the number of calculated
+valuation scenarios. Open **Data diagnostics: provider issues vs business-case setup** to see each
+symbol's provider status, available reported EPS, missing provider fields/sections, quote freshness,
+cache status, original receipt times and business inputs still needed. **Download data diagnostics
+(JSON)** exports that snapshot without extra API calls, raw responses, credentials or portfolio values.
+The same aggregate availability counts appear in application logs at INFO level.
+
+A blank normalized EPS, business review date, financial period reviewed, thesis approval or confidence
+is a business-case setup issue, not evidence of throttling. Reported EPS comes from the provider;
+normalized EPS is the reviewed modeling input. Only PEP/MSFT/TSM initially have numeric conversation
+examples. Other symbols need assumptions before scenario values and modeled rankings can be calculated.
+Missing provider fields alone do not prove rate limiting; the diagnostics distinguish actual provider
+errors from incomplete responses. Scenario/valuation purchase thresholds remain separate checks.
