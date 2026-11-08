@@ -11,7 +11,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from . import data_access
+from . import automatic_ui, data_access
 from . import deployment_profile as profiles
 from .diagnostics import build_report
 from .valuation import Assumptions, Policy, deployment, parse_date, to_dict
@@ -138,11 +138,17 @@ def _assumption_editor(tickers: list[str], profile: dict[str, Any], sections: di
 
 def render(tickers: list[str], load_market: bool = True) -> None:
     st.subheader("Where should today's cash go?")
-    st.caption(
-        "Five-year EPS + dividends scenario model by default; returns are nominal, before tax. "
-        "Buy gates use the conservative value. Quality checks do not determine allocations."
-    )
     profile = _profile()
+    mode = st.radio(
+        "Assessment mode",
+        ["Automatic financial ranking", "Scenario valuation (advanced)"],
+        key="assessment_mode",
+        horizontal=True,
+    )
+    if mode == "Automatic financial ranking":
+        automatic_ui.render(tickers, profile, _save, load_market)
+        return
+    st.caption("Optional analyst scenario model. These assumptions and approvals apply only to this advanced mode.")
     with st.expander("Load a saved deployment profile"):
         uploaded = st.file_uploader("Import your profile JSON", type=["json"], key="profile_upload")
         if st.button("Load profile", disabled=uploaded is None) and uploaded is not None:
