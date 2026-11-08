@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 import random
@@ -24,7 +25,7 @@ _DEFAULT_PRICE_TTL_SECONDS = int(os.getenv("YF_PRICE_TTL_SECONDS", "300"))
 _CACHE_DISABLE_ENV_VAR = "YF_DISABLE_CACHE"
 _HEALTH_CHECK_CACHE_TTL_SECONDS = 15
 _HEALTH_CHECK_KEY = "yahoo_finance"
-_HEALTH_CHECK_HOSTS = ("query1.finance.yahoo.com", "query2.finance.yahoo.com")
+
 
 logger = logging.getLogger(__name__)
 VALIDATE_TICKER_CACHE: dict[tuple[type[Any], tuple[str, ...]], list[str]] = {}
@@ -51,6 +52,7 @@ class DataSourceHealth:
     headers: Mapping[str, Any]
     rate_limit: RateLimitError | None = None
     message: str | None = None
+    verified: bool = False
     checked_at: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
 
 
@@ -157,6 +159,7 @@ def validate_tickers(tickers: Iterable[str], ticker_cls: type[Ticker] = Ticker) 
 
     try:
         ticker_client = ticker_cls(normalized)
+        _guard_transport(ticker_client)
         quote_type_section = getattr(ticker_client, "quote_type", {})
         symbols_attr = getattr(ticker_client, "symbols", [])
     except Exception:
@@ -214,6 +217,7 @@ def get_batched_ticker_client(tickers: Iterable[str], ticker_cls: type[Ticker] =
         # Randomness only spreads requests; it does not protect secrets.
         time.sleep(random.uniform(0.05, 0.15))  # nosec B311
         client = ticker_cls(normalized)
+        _guard_transport(client)
     except Exception:
         logger.exception("Unable to create batched ticker client")
         return None
@@ -364,7 +368,7 @@ def _active_rate_limit() -> RateLimitError | None:
     return RateLimitError(
         status_code=None,
         message="Rate limit active",
-        retry_after=remaining_seconds,
+        retry_after=None,
         headers={},
         host=active_host,
         remaining=remaining_seconds,
@@ -402,104 +406,94 @@ def check_data_source_health(
     timeout: float = 2.5,
     force_refresh: bool = False,
 ) -> DataSourceHealth:
-    """Return a quick health signal for the Yahoo Finance data source."""
+    """Read provider readiness; never probe an unrelated unauthenticated endpoint.
 
+    ``ok`` permits an actual data attempt. Only ``verified`` establishes that
+    an actual provider response has succeeded; readiness is not reachability.
+    """
     if is_smoke_mode():
         return DataSourceHealth(
-            ok=True,
-            host="smoke-test",
-            latency_ms=0.0,
-            headers={},
-            message="Smoke test mode bypasses live checks",
+            ok=True, host="smoke-test", latency_ms=0.0, headers={}, message="Demo data; no live verification"
         )
-
+    if active := _active_rate_limit():
+        return DataSourceHealth(
+            ok=False,
+            host=active.host,
+            latency_ms=None,
+            headers={},
+            rate_limit=active,
+            message="Provider cooldown active",
+        )
     cached = _get_cached_health(force_refresh=force_refresh)
-    if cached and (cached.rate_limit or not _active_rate_limit()):
+    if cached and cached.verified:
         return cached
+    return DataSourceHealth(
+        ok=True,
+        host=None,
+        latency_ms=None,
+        headers={},
+        message="Provider not yet verified; the next actual data request will establish availability",
+    )
 
-    if active_limit := _active_rate_limit():
-        status = DataSourceHealth(
-            ok=False,
-            host=active_limit.host,
-            latency_ms=None,
-            headers={},
-            rate_limit=active_limit,
-            message="Rate limit active",
-        )
-        _set_cached_health(status)
-        return status
 
-    params = {"symbols": ticker}
+_MODULE_NAMES = {
+    "summary_detail": "summaryDetail",
+    "financial_data": "financialData",
+    "asset_profile": "assetProfile",
+    "key_stats": "defaultKeyStatistics",
+    "quote_type": "quoteType",
+    "price": "price",
+}
+# Keep the client identity alongside id-based keys to prevent object-id reuse.
+CLIENT_PAYLOADS: dict[tuple[int, str], tuple[datetime, Any, Any]] = {}
 
-    responses: list[tuple[str, Any, float]] = []
-    for host in _HEALTH_CHECK_HOSTS:
-        url = f"https://{host}/v7/finance/quote"
-        start = time.perf_counter()
-        try:
-            response = requests.get(url, params=params, timeout=timeout)
-        except requests.Timeout:
-            continue
-        except requests.RequestException:
-            logger.exception("Yahoo Finance health request failed for %s", host)
-            continue
-        latency_ms = (time.perf_counter() - start) * 1000
-        responses.append((host, response, latency_ms))
-        if response.status_code < 500 or response.status_code == 503:
-            break
 
-    if not responses:
-        status = DataSourceHealth(
-            ok=False,
-            host=None,
-            latency_ms=None,
-            headers={},
-            message=f"Health check timed out after {timeout}s",
-        )
-        _set_cached_health(status)
-        return status
+def _client_payload(client: Any, name: str, fetch, ttl: int) -> Any:
+    key = (id(client), name)
+    cached = CLIENT_PAYLOADS.get(key)
+    if cached and cached[1] is client and cached[0] > _utcnow():
+        return cached[2]
+    payload = fetch()
+    CLIENT_PAYLOADS[key] = (_utcnow() + timedelta(seconds=ttl), client, payload)
+    # Bound retention independently of watchlist/client churn.
+    if len(CLIENT_PAYLOADS) > 128:
+        del CLIENT_PAYLOADS[next(iter(CLIENT_PAYLOADS))]
+    return payload
 
-    host_hint, response, latency_ms = responses[-1]
 
-    try:
-        headers = _normalize_headers(response.headers)
-        host = _extract_host(response) or host_hint
-        retry_after = _parse_retry_after(headers)
-        rate_limit_error: RateLimitError | None = None
+def _guard_transport(client: Any) -> None:
+    """Preserve real HTTP errors before Yahooquery converts JSON failures to 404.
 
-        if response.status_code in {429, 503} or retry_after:
-            rate_limit_error = RateLimitError(
-                status_code=response.status_code,
-                message="Rate limit detected",
-                retry_after=retry_after,
-                headers=headers,
-                host=host,
-                payload=None,
-                remaining=retry_after,
-            )
+    Guard only the existing synchronous transport: no new client/session, no
+    retries and no authentication changes. Test doubles without sessions work.
+    """
+    session = vars(client).get("session")
+    if session is None or getattr(session, "_dashboard_status_guard", False):
+        return
+    original_get = session.get
 
-        if rate_limit_error:
-            _record_rate_limit(rate_limit_error)
-        ok = response.ok and not rate_limit_error
-        message = None if response.ok else f"HTTP {response.status_code}"
-        status = DataSourceHealth(
-            ok=ok,
-            host=host,
-            latency_ms=latency_ms,
-            headers=_rate_limit_headers(headers),
-            rate_limit=rate_limit_error,
-            message=message,
-        )
-    except Exception as exc:  # noqa: BLE001
-        status = DataSourceHealth(
-            ok=False,
-            host=None,
-            latency_ms=None,
-            headers={},
-            message=str(exc),
-        )
+    def checked_get(*args, **kwargs):
+        response = original_get(*args, **kwargs)
+        status = getattr(response, "status_code", None)
+        location = urlparse(str(getattr(response, "url", "")))
+        logger.info("Yahoo response: host=%s path=%s status=%s", location.hostname, location.path, status)
+        if isinstance(status, int) and status >= 400:
+            raise requests.HTTPError(f"Yahoo provider returned HTTP {status}", response=response)
+        return response
 
-    _set_cached_health(status)
-    return status
+    session.get = checked_get
+    session._dashboard_status_guard = True
+
+
+def _provider_error(raw: Any, ticker: str) -> dict[str, Any]:
+    """Preserve yahooquery error payloads without inventing an HTTP status."""
+    if isinstance(raw, (pd.DataFrame, pd.Series)):
+        return {}
+    value = raw.get(ticker, raw) if isinstance(raw, Mapping) else raw
+    error = value.get("error") if isinstance(value, Mapping) else value
+    if not error:
+        return {}
+    return {"message": str(error), "provider_payload": error}
 
 
 def resolve_company_name(ticker: str, quote_type=None, price=None, profile=None) -> str:
@@ -531,7 +525,12 @@ def _detect_buybacks(ticker_client: Any, key_stats: Mapping[str, Any], ticker: s
     if not callable(income_statement):
         return None
     try:
-        history = income_statement(frequency="a", trailing=False)
+        history = _client_payload(
+            ticker_client,
+            "annual_income",
+            lambda: income_statement(frequency="a", trailing=False),
+            _DEFAULT_FUNDAMENTAL_TTL_SECONDS,
+        )
         if not isinstance(history, pd.DataFrame) or history.empty:
             return None
         if ticker and ticker in history.index:
@@ -751,7 +750,28 @@ def fetch_ticker_sections(
 
     def _fetch_section(client: Any, attr_name: str) -> tuple[Mapping[str, Any], dict[str, Any]]:
         try:
-            section = getattr(client, attr_name)
+            _guard_transport(client)
+            # Inspect declared attributes, not arbitrary fake/provider __getattr__.
+            declared_modules = inspect.getattr_static(client, "get_modules", None)
+            get_modules = client.get_modules if callable(declared_modules) else None
+            if get_modules is not None:
+                raw = _client_payload(
+                    client,
+                    "quote_modules",
+                    lambda: get_modules(list(_MODULE_NAMES.values())),
+                    _DEFAULT_PRICE_TTL_SECONDS,
+                )
+                if error := _provider_error(raw, ticker):
+                    return {}, error
+                section = {
+                    symbol: value.get(_MODULE_NAMES[attr_name], {})
+                    for symbol, value in raw.items()
+                    if isinstance(value, Mapping)
+                }
+            else:
+                section = getattr(client, attr_name)
+                if error := _provider_error(section, ticker):
+                    return {}, error
             # A batched property contains every symbol. Cache all of them rather
             # than repeating the same watchlist-wide HTTP request for each row.
             for symbol in getattr(client, "symbols", [ticker]):
@@ -831,7 +851,9 @@ def fetch_ticker_sections(
 
     if "buybacks" not in sections:
         buybacks = (
-            None if _active_rate_limit() else _detect_buybacks(client_to_use, sections.get("key_stats", {}), ticker)
+            None
+            if error_info or _active_rate_limit()
+            else _detect_buybacks(client_to_use, sections.get("key_stats", {}), ticker)
         )
         sections["buybacks"] = buybacks
         _set_cached_section(ticker, "buybacks", {"value": buybacks})
@@ -855,6 +877,28 @@ def fetch_ticker_sections(
         not served_from_cache,
     )
 
+    if error_info:
+        _set_cached_health(
+            DataSourceHealth(
+                ok=False,
+                host="query2.finance.yahoo.com",
+                latency_ms=None,
+                headers={},
+                message=error_info.get("message"),
+                rate_limit=error_info.get("rate_limit"),
+            )
+        )
+    elif any(sections.get(name) for name in _MODULE_NAMES):
+        _set_cached_health(
+            DataSourceHealth(
+                ok=True,
+                verified=True,
+                host="query2.finance.yahoo.com",
+                latency_ms=None,
+                headers={},
+                message="Actual provider data received",
+            )
+        )
     return {
         **sections,
         "buybacks": buybacks,

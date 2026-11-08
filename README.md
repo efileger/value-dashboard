@@ -195,9 +195,14 @@ creation. The app honors `Retry-After` (seconds or HTTP date), otherwise waits f
 Reruns and watchlist changes do not bypass that cooldown. Available unexpired cached screening
 metrics remain visible, but throttled data cannot produce an actionable deployment recommendation.
 Batched module responses are cached for all returned watchlist symbols to avoid downloading the
-same watchlist repeatedly. A 401/403 health response is not reported as healthy.
+same watchlist repeatedly. Actual provider 401/403 responses are surfaced as authentication/access failures.
+There is no independent raw-HTTP health probe: availability comes from the actual provider session.
 
 The shared `scripts/check.sh fast` suite exercises cold production-style 429 responses, page reruns,
 cooldown recovery, partial/cache behavior, immediate stop after a section fails, and batched request
 counts offline. The UI no longer has a pytest-only health-gate bypass. These tests catch application
 regressions; they cannot guarantee that Yahoo will accept a shared hosting provider's outbound IP.
+
+See [the data-provider assessment](docs/data-provider-assessment.md) for the underlying request-path
+defects, free-provider comparison, sources, and migration acceptance criteria. Tests now exercise
+the installed Yahooquery HTTP request builder and real response objects, including plain-text 429s.

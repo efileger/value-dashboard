@@ -18,38 +18,36 @@ def throttled(url="https://query1.finance.yahoo.com/v7/finance/quote"):
     return response
 
 
-def test_cold_production_page_and_rerun_stop_after_one_429(monkeypatch):
+def test_production_page_rerun_during_actual_provider_cooldown(monkeypatch):
     monkeypatch.delenv("SMOKE_TEST", raising=False)
     monkeypatch.delenv("VALUATION_PROFILE_PATH", raising=False)
-    with (
-        patch.object(data_access.requests, "get", return_value=throttled()) as get,
-        patch.object(
-            data_access.Ticker, "__init__", side_effect=AssertionError("No provider clients during cooldown")
-        ) as constructor,
-    ):
+    data_access._record_rate_limit(
+        data_access.RateLimitError(status_code=429, message="actual provider throttled", retry_after=None, headers={})
+    )
+    with patch.object(data_access.Ticker, "__init__", side_effect=AssertionError("No new clients")) as constructor:
         app = AppTest.from_file(Path(__file__).resolve().parents[1] / "stock_dashboard.py").run(timeout=15)
         assert not app.exception
-        assert any("paused" in message.value for message in app.info)
         app.run(timeout=15)
         assert not app.exception
-        assert get.call_count == 1
         constructor.assert_not_called()
-        assert not app.success  # No actionable purchase recommendation from unavailable data.
+        notices = [m.value for m in app.info if "Rate limit detected from" in m.value]
+        assert not notices  # A global outage is not rendered for every ticker.
+        assert not app.success
 
 
 def test_no_retry_after_uses_default_and_recovers_after_expiry(monkeypatch):
     now = datetime(2026, 11, 8, tzinfo=timezone.utc)
     monkeypatch.setattr(data_access, "_utcnow", lambda: now)
-    with patch.object(data_access.requests, "get", return_value=throttled()) as get:
-        health = data_access.check_data_source_health()
-        assert health.rate_limit.remaining == 300
-        data_access.check_data_source_health(force_refresh=True)
-        assert data_access.validate_tickers(["MSFT"]) == ["MSFT"]
-        assert data_access.get_batched_ticker_client(["MSFT"]) is None
-        assert get.call_count == 1
-        monkeypatch.setattr(data_access, "_utcnow", lambda: now + timedelta(seconds=301))
-        data_access.check_data_source_health(force_refresh=True)
-        assert get.call_count == 2
+    data_access._record_rate_limit(
+        data_access.RateLimitError(status_code=429, message="actual provider throttled", retry_after=None, headers={})
+    )
+    health = data_access.check_data_source_health()
+    assert health.rate_limit.remaining == 300
+    assert health.rate_limit.retry_after is None
+    assert data_access.validate_tickers(["MSFT"]) == ["MSFT"]
+    assert data_access.get_batched_ticker_client(["MSFT"]) is None
+    monkeypatch.setattr(data_access, "_utcnow", lambda: now + timedelta(seconds=301))
+    assert data_access.check_data_source_health(force_refresh=True).ok
 
 
 def test_section_429_stops_remaining_sections_and_buyback_requests(monkeypatch):
@@ -72,8 +70,9 @@ def test_cached_screen_survives_429_but_allocation_is_blocked(monkeypatch, strea
     monkeypatch.delenv("SMOKE_TEST")
     for name in ("summary_detail", "financial_data", "asset_profile", "key_stats", "quote_type", "price"):
         data_access._set_cached_section("TEST", name, cached[name])
-    with patch.object(data_access.requests, "get", return_value=throttled()):
-        data_access.check_data_source_health()
+    data_access._record_rate_limit(
+        data_access.RateLimitError(status_code=429, message="actual provider throttled", retry_after=None, headers={})
+    )
     with patch.object(data_access.Ticker, "__init__", side_effect=AssertionError("Must use cache")):
         result = data_access.fetch_ticker_sections("TEST")
         assert result["error"]["rate_limit"]
