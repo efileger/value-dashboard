@@ -1,10 +1,10 @@
 import os
-from pathlib import Path
 import socket
 import subprocess
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 
 def _find_free_port() -> int:
@@ -17,7 +17,7 @@ def _wait_for_ready(url: str, timeout: float = 20.0) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(url) as response:  # noqa: S310
+            with urllib.request.urlopen(url) as response:
                 if response.status == 200:
                     return
         except (urllib.error.URLError, ConnectionError):

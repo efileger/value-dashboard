@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 import logging
 import os
 import random
 import time
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
 from urllib.parse import urlparse
 
 import pandas as pd
@@ -27,7 +30,7 @@ _HEALTH_CHECK_HOSTS = ("query1.finance.yahoo.com", "query2.finance.yahoo.com")
 logger = logging.getLogger(__name__)
 VALIDATE_TICKER_CACHE: dict[tuple[type[Any], tuple[str, ...]], list[str]] = {}
 CACHED_TICKER_CLIENTS: dict[tuple[type[Ticker], tuple[str, ...]], Any] = {}
-HEALTH_CHECK_CACHE: dict[str, tuple[datetime, "DataSourceHealth"]] = {}
+HEALTH_CHECK_CACHE: dict[str, tuple[datetime, DataSourceHealth]] = {}
 
 
 @dataclass
@@ -148,6 +151,7 @@ def validate_tickers(
         quote_type_section = getattr(ticker_client, "quote_type", {})
         symbols_attr = getattr(ticker_client, "symbols", [])
     except Exception:
+        logger.exception("Unable to validate ticker symbols; using normalized input")
         return normalized
 
     available_symbols: list[str] = []
@@ -211,6 +215,7 @@ def get_batched_ticker_client(
         time.sleep(random.uniform(0.05, 0.15))
         client = ticker_cls(normalized)
     except Exception:
+        logger.exception("Unable to create batched ticker client")
         return None
 
     CACHED_TICKER_CLIENTS[pool_key] = client
@@ -302,7 +307,7 @@ def _parse_retry_after(headers: Mapping[str, Any], payload: Any = None) -> int |
             try:
                 parsed_date = datetime.fromisoformat(str(header_value))
                 return max(0, int((parsed_date - _utcnow()).total_seconds()))
-            except Exception:
+            except (TypeError, ValueError, OverflowError):
                 return None
 
     if isinstance(payload, Mapping):
@@ -435,7 +440,8 @@ def check_data_source_health(
             response = requests.get(url, params=params, timeout=timeout)
         except requests.Timeout:
             continue
-        except Exception:
+        except requests.RequestException:
+            logger.exception("Yahoo Finance health request failed for %s", host)
             continue
         latency_ms = (time.perf_counter() - start) * 1000
         responses.append((host, response, latency_ms))
@@ -525,6 +531,7 @@ def _detect_buybacks(ticker_client: Any, key_stats: Mapping[str, Any]) -> bool |
             if isinstance(share_counts, list) and len(share_counts) > 1:
                 return share_counts[-1] < share_counts[0]
     except Exception:
+        logger.exception("Unable to retrieve historical share counts")
         return None
 
     return None
@@ -680,7 +687,7 @@ def fetch_ticker_sections(
         if response is not None:
             try:
                 payload = response.json()
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 payload = getattr(response, "text", None)
 
         if status_code is not None:

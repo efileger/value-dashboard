@@ -157,8 +157,10 @@ def test_fetch_ticker_sections_detects_rate_limit(monkeypatch):
 
     class Response:
         status_code = 429
-        headers = {"Retry-After": "7"}
         url = "https://query1.finance.yahoo.com/v7/finance/quote"
+
+        def __init__(self):
+            self.headers = {"Retry-After": "7"}
 
         def json(self):
             return {"message": "Too many requests", "retry_after": 7}
