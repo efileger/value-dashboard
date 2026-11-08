@@ -10,6 +10,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from .automatic import DEFAULT_WEIGHTS, assess_watchlist
 from .valuation import (
     Assumptions,
     Policy,
@@ -58,6 +59,21 @@ def decode_profile(raw: str) -> dict[str, Any]:
                 raise TypeError("Approval fields must be boolean")
         if any(not isinstance(v, str) for v in (policy.holdings_as_of, policy.account, policy.plan_started_on)):
             raise TypeError("Portfolio date and account must be text")
+        if "automatic" in value:
+            settings = value["automatic"]
+            if not isinstance(settings, dict):
+                raise TypeError("Automatic preferences must be an object")
+            weights = settings.get("weights", DEFAULT_WEIGHTS)
+            assess_watchlist(
+                {},
+                weights,
+                settings.get("budget", 5000.0),
+                settings.get("max_businesses", 1),
+                settings.get("minimum_score", 60.0),
+                settings.get("minimum_coverage", 70.0) / 100,
+            )
+            if settings.get("max_businesses", 1) > 100 or any(w > 100 for w in weights.values()):
+                raise ValueError("Automatic preferences exceed widget limits")
         purchases = value["purchases"]
         if not isinstance(value.get("archives", []), list):
             raise TypeError("Archived plans must be a list")

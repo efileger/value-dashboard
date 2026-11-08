@@ -86,9 +86,41 @@ This dashboard was built to support a **FIRE-focused, empirically driven approac
 
 ---
 
-## Valuation-gated cash deployment
+## Automatic financial assessment (default)
 
-The dashboard answers “where should this cash go today?” using reviewed business assumptions and
+The default mode automatically scores reported financial metrics and ranks the full watchlist.
+**No manual EPS forecasts, business review dates, thesis approvals or confidence ratings are needed.**
+Enter cash already available after reserves and the maximum number of businesses to fund; optionally
+adjust category weights once under **Your ranking priorities and automatic purchase rules**.
+
+Default priorities are Valuation 35%, Profitability 25%, Growth 15%, Balance sheet 15%, Cash generation
+10%, and Income/ownership 0%. These are editable starting preferences, not learned personal priorities.
+Existing screen thresholds provide references: meeting a positive ratio threshold earns 50/100,
+stronger results increase toward 100, invalid/nonpositive valuation multiples earn zero, and positive
+cash flow or net share reduction earns 100. Missing weighted metrics contribute zero and lower data
+coverage. Absolute sales per share is context rather than a cross-company ranking factor.
+
+The default allocation rules require score >=60, weighted data coverage >=70%, valuation-category
+score >=50 when valuation is enabled, and a valid USD quote no
+older than four calendar days, and no provider request error. A known financial period older than
+200 days or in the future blocks cash suggestions; unavailable period metadata is shown explicitly.
+These are transparent, adjustable screening rules, not calibrated return forecasts. Rankings remain
+visible when rules block cash. Split cash equally among the highest-ranked qualifying N businesses;
+unallocated cash is shown explicitly. No holdings feed is connected, so suggested amounts do not
+account for existing portfolio concentration, investor taxes or brokerage restrictions.
+
+**Explain the score and missing data** shows every metric's value, reference threshold, weight,
+score and contribution. Export the ranking/evidence or download the profile with preferences and
+reload it in the next session. Existing private profile storage is also supported.
+
+The score measures reported valuation ratios, financial quality and data completeness; it is not an
+intrinsic value estimate or expected annual return. Latest provider data drives refreshes rather than
+manual review flags. Sector differences, accounting one-offs and unknown reporting dates still limit
+automated screening. Dividend yield has no allocation weight unless explicitly enabled.
+
+## Optional scenario valuation (advanced)
+
+The optional **Scenario valuation (advanced)** mode estimates scenario values using reviewed business assumptions and
 current Yahoo quotes. Set **Cash to deploy today** (for example $5,000) and **Maximum businesses this
 review** (1 for the best candidate, or up to 10 for a larger budget). The first candidate receives up
 to its permitted tranche, then additional candidates receive cash in rank order. The app may leave
@@ -216,7 +248,7 @@ current decision, alternatives, and criteria for a future migration.
 
 ### Simple data diagnostics
 
-The deployment view shows quote availability, provider-error counts and the number of calculated
+In advanced scenario mode, the deployment view shows quote availability, provider-error counts and the number of calculated
 valuation scenarios. Open **Data diagnostics: provider issues vs business-case setup** to see each
 symbol's provider status, available reported EPS, missing provider fields/sections, quote freshness,
 cache status, original receipt times and business inputs still needed. **Download data diagnostics

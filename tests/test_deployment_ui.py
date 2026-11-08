@@ -17,10 +17,10 @@ def test_full_app_smoke_has_planner_without_buy_labels(monkeypatch):
     monkeypatch.delenv("VALUATION_PROFILE_PATH", raising=False)
     app = AppTest.from_file(Path(__file__).resolve().parents[1] / "stock_dashboard.py").run(timeout=20)
     assert not app.exception
-    assert any("No watchlist business clears" in message.value for message in app.info)
+    assert any("No stock clears the automatic" in message.value for message in app.info)
     assert not any("Suggested Action" in message.value for message in app.markdown)
     assert widget(app.number_input, "Cash to deploy today (USD)").value == 5000
-    assert len(app.get("download_button")) == 4
+    assert len(app.get("download_button")) == 3
 
 
 def planner_app(profile):
@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from stock_dashboard import data_access, deployment_ui
 from stock_dashboard.deployment_profile import decode_profile
 from unittest.mock import patch
+st.session_state["assessment_mode"] = "Scenario valuation (advanced)"
 st.session_state.setdefault("deployment_profile", decode_profile({encode_profile(profile)!r}))
 def fetch(ticker, **kwargs):
     return {{"price": {{
@@ -126,7 +127,9 @@ def test_profile_load_error_is_visible_and_cannot_allocate(tmp_path, monkeypatch
     path.write_text("broken")
     monkeypatch.setenv("VALUATION_PROFILE_PATH", str(path))
     app = AppTest.from_string("""
+import streamlit as st
 from stock_dashboard.deployment_ui import render
+st.session_state["assessment_mode"] = "Scenario valuation (advanced)"
 render([], load_market=False)
 """).run()
     assert not app.exception
