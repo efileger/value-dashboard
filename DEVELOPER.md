@@ -15,3 +15,8 @@ The repository includes a non-blocking GitHub Actions workflow named **Live data
 
 ## Webhook/SaaS notifications
 Configure `secrets.LIVE_PROBE_WEBHOOK` with your Slack Incoming Webhook (or similar) URL to receive JSON payloads matching `probe-report.json`. The payload includes command, tickers, smoke-mode flag, duration, and outcome; downstream alerting rules can page only on `outcome != "success"` or on latency thresholds.
+
+## Quality checks and deployment readiness
+
+Use [Quality gates](docs/quality-gates.md) for the shared Dev/CI commands, pinned installation,
+reference architecture assessment, and the remaining production promotion/rollback work.

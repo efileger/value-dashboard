@@ -51,7 +51,10 @@ def test_ensure_data_available_detects_missing_metrics():
 
 @pytest.mark.parametrize(
     "market_cap_section, fallback_value",
-    [("price", {"price": {"marketCap": 1_500_000_000}}), ("summary_detail", {"summary_detail": {"marketCap": 2_250_000_000}})],
+    [
+        ("price", {"price": {"marketCap": 1_500_000_000}}),
+        ("summary_detail", {"summary_detail": {"marketCap": 2_250_000_000}}),
+    ],
 )
 def test_ensure_data_available_accepts_market_cap_fallback(market_cap_section, fallback_value):
     base_sections = {

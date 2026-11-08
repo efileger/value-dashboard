@@ -19,6 +19,7 @@ jobs:
   dependency-audit:
     name: Dependency security audit
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     env:
       PYTHON_VERSION: '3.11'
     steps:
@@ -39,18 +40,14 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pip-audit
+          pip install --require-hashes -r requirements-dev.txt
 
       - name: Run pip-audit
         id: pip-audit
         continue-on-error: true
         run: |
           source .venv/bin/activate
-          pip-audit --progress-spinner=off \
-            --requirement requirements.txt \
-            --output pip-audit.json \
-            --format json
+          SBOM_PATH=pip-audit.json bash scripts/check.sh audit
 
       - name: Upload pip-audit report
         if: always()
@@ -67,6 +64,7 @@ jobs:
   secret-scan:
     name: Secret scan
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     permissions:
@@ -81,10 +79,8 @@ jobs:
 
       - name: Install Gitleaks
         run: |
-          set -euo pipefail
-          VERSION="8.24.3"
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" | tar -xz
-          sudo mv gitleaks /usr/local/bin/gitleaks
+          bash scripts/install-gitleaks.sh
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Run Gitleaks (SARIF)
         run: |
@@ -113,10 +109,11 @@ jobs:
       - name: Enforce secret scan gate
         run: |
           set -euo pipefail
-          gitleaks detect --source . --redact
+          bash scripts/check.sh secrets
 
   lint-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     env:
       PYTHON_VERSION: '3.11'
     steps:
@@ -137,23 +134,15 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          pip install --require-hashes -r requirements-dev.txt
 
-      - name: Lint with Ruff
-        run: |
-          source .venv/bin/activate
-          ruff check .
+      - name: Install actionlint
+        run: bash scripts/install-actionlint.sh
 
-      - name: Type-check with mypy
-        run: |
-          source .venv/bin/activate
-          mypy .
-
-      - name: Run tests
-        run: |
-          source .venv/bin/activate
-          pytest --cov=stock_dashboard --cov-report=xml --cov-fail-under=75
+      - name: Shared Dev and CI quality gates
+        env:
+          COVERAGE_FILE_PATH: coverage.xml
+        run: bash scripts/check.sh fast
 
       - name: Upload coverage report
         if: always()
@@ -165,8 +154,9 @@ jobs:
 
   dev-deploy:
     name: Dev deploy smoke
-    needs: lint-and-test
+    needs: [lint-and-test, dependency-audit, secret-scan]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
       deployments: write
@@ -201,107 +191,17 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install --require-hashes -r requirements.txt
 
-      - name: Launch Streamlit in headless mode
-        run: |
-          timeout 60 .venv/bin/streamlit run stock_dashboard.py \
-            --server.headless true \
-            --server.address 127.0.0.1 \
-            --server.port 8501 \
-            --browser.gatherUsageStats false \
-            >/tmp/streamlit.log 2>&1 &
-
-          sleep 3
-
-          if ! pgrep -f "streamlit run" >/dev/null; then
-            echo "Streamlit process did not start."
-
-            if [ -f /tmp/streamlit.log ]; then
-              echo "--- Begin Streamlit log ---"
-              cat /tmp/streamlit.log
-              echo "--- End Streamlit log ---"
-            else
-              echo "Streamlit log not found at /tmp/streamlit.log"
-            fi
-
-            exit 1
-          fi
-
-      - name: Verify app responds on dev port
-        run: |
-          set -u
-
-          if ! pgrep -f "streamlit run" >/dev/null; then
-            echo "Streamlit process is not running before readiness checks."
-
-            if [ -f /tmp/streamlit.log ]; then
-              echo "--- Begin Streamlit log ---"
-              cat /tmp/streamlit.log
-              echo "--- End Streamlit log ---"
-            else
-              echo "Streamlit log not found at /tmp/streamlit.log"
-            fi
-
-            exit 1
-          fi
-
-          if [ -f /tmp/streamlit.log ]; then
-            echo "--- Recent Streamlit log entries ---"
-            tail -n 40 /tmp/streamlit.log || true
-            echo "--- End recent Streamlit log entries ---"
-          fi
-
-          timeout 30 bash -c 'until curl -sSf http://localhost:8501/ >/dev/null; do sleep 2; done'
-          ready_status=$?
-
-          if [ "${ready_status}" -ne 0 ]; then
-            echo "Readiness check failed with status ${ready_status}"
-
-            if [ -f /tmp/streamlit.log ]; then
-              echo "--- Begin Streamlit log ---"
-              cat /tmp/streamlit.log
-              echo "--- End Streamlit log ---"
-            else
-              echo "Streamlit log not found at /tmp/streamlit.log"
-            fi
-
-            ps -ef | grep "[s]treamlit" || true
-            exit 1
-          fi
-
-          curl -sSf http://localhost:8501/ >/tmp/streamlit_smoke.html
-          curl_status=$?
-
-          if [ "${curl_status}" -ne 0 ]; then
-            echo "App fetch failed with status ${curl_status}"
-
-            if [ -f /tmp/streamlit.log ]; then
-              echo "--- Begin Streamlit log ---"
-              cat /tmp/streamlit.log
-              echo "--- End Streamlit log ---"
-            else
-              echo "Streamlit log not found at /tmp/streamlit.log"
-            fi
-
-            ps -ef | grep "[s]treamlit" || true
-            exit 1
-          fi
-
-      - name: Show Streamlit logs (on failure)
-        if: failure()
-        run: cat /tmp/streamlit.log || true
-
-      - name: Stop Streamlit server
-        if: always()
-        run: pkill -f "streamlit run" || true
+      - name: Shared Dev and CI smoke boot
+        run: bash scripts/check.sh smoke
 
       - name: Upload Streamlit logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: streamlit-dev-logs
-          path: /tmp/streamlit.log
+          path: /tmp/value-dashboard-streamlit.log
 
       - name: Mark dev deployment inactive
         if: always()

@@ -42,4 +42,3 @@ def configure_logging(level: str | int | None = None, format_string: str | None 
         format=format_string or DEFAULT_FORMAT,
         force=True,
     )
-

@@ -34,3 +34,11 @@ This repository follows trunk-based development practices with a minimumCD minds
 - Update documentation (README, runbooks) when delivery or operational processes change.
 - Guard against brittle dependencies by handling API changes defensively and surfacing clear user-facing errors.
 - Keep instructions in this file current when adopting new CD practices or tooling.
+
+## Shared pre-CI checks
+- Use Python 3.11 and install `requirements-dev.txt` with `--require-hashes`.
+- Install native tools with `bash scripts/install-gitleaks.sh` and `bash scripts/install-actionlint.sh`.
+- Run `bash scripts/check.sh fast`, `bash scripts/check.sh secrets`, and `bash scripts/check.sh smoke`.
+- Run `bash scripts/check.sh audit` on dependency changes; it is mandatory in CI.
+- Keep the regular suite offline; mock external services and never set `SMOKE_TEST` globally.
+- See `docs/quality-gates.md` for remaining deployment controls and lock regeneration.
