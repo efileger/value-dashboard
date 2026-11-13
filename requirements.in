@@ -1,5 +1,7 @@
-# Runtime dependencies. Regenerate locks with scripts/lock-dependencies.sh on Python 3.11.
+# Runtime dependencies. Regenerate locks with scripts/lock-dependencies.sh on Python 3.11.5+ (3.11 series).
 streamlit
 yahooquery
+# Security floor for yahooquery -> beautifulsoup4 (GHSA-mmhr-3c5m-f64f, GHSA-8jvp-3x96-xpqw).
+soupsieve>=4.0.1
 pandas
 numpy-financial>=1.0.0,<2

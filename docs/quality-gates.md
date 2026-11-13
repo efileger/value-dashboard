@@ -53,7 +53,8 @@ published and required checks are configured. Local passing checks alone are not
 
 ## Shared installation and commands
 
-Supported parity target is Linux x86_64, Python 3.11 (the CI/devcontainer runtime).
+Supported parity target is Linux x86_64, Python 3.11.5+ in the 3.11 series (the CI/devcontainer runtime).
+Soup Sieve 4.0.1 requires this patch-level minimum; lock generation targets Python 3.11.5.
 The README's older Python 3.9+ claim is not verified by these locks; supporting other
 Python versions requires separate locks and a compatibility matrix. The application
 metadata's declared minimum must be reconciled before advertising broader support.
@@ -96,7 +97,7 @@ On managed hosts with a read-only home cache, set
 The audit and lock scripts already use writable local caches.
 
 Edit `requirements.in` / `requirements-dev.in`, then run `bash scripts/lock-dependencies.sh`
-on Python 3.11 using the pinned uv version installed with dev requirements. Runtime pins
+on Python 3.11.5+ (3.11 series) using the pinned uv version installed with dev requirements. Runtime pins
 constrain dev resolution, keeping the application dependencies identical in both.
 Commit both `.in` and generated `.txt` files. CI installs locks; it does not upgrade them.
 The devcontainer installs the same dev lock and both native scanners. A saved managed Dev environment must also use
